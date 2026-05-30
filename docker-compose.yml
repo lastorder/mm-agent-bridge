@@ -1,0 +1,10 @@
+services:
+  # Optional: local Mattermost instance for fully self-contained dev.
+  # Start with: docker-compose --profile local up
+  mattermost:
+    image: mattermost/mattermost-preview
+    platform: linux/amd64
+    ports:
+      - "8065:8065"
+    profiles:
+      - local

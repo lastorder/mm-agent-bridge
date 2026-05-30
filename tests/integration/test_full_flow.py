@@ -1,0 +1,126 @@
+"""Integration tests: full end-to-end flow from MM event to MM reply."""
+
+from __future__ import annotations
+
+import pytest
+
+from tests.conftest import BOT_USER_ID, make_posted_event
+
+
+class TestFullFlow:
+    """End-to-end: MM websocket event -> queue -> OpenCode -> MM reply."""
+
+    @pytest.mark.asyncio
+    async def test_mention_to_reply(self, bot, mock_driver, mock_opencode) -> None:
+        """Single mention flows through the entire pipeline."""
+        mock_opencode.chat.return_value = "Here is the explanation."
+
+        # 1. Simulate websocket event.
+        raw = make_posted_event(
+            message="@ai-agent explain auth.py",
+            channel_id="ch-abc",
+            post_id="post-100",
+            user_id="user-x",
+            mentions=[BOT_USER_ID],
+        )
+        await bot.handle_websocket_event(raw)
+
+        # 2. Process via queue consumer.
+        post = bot.queue.get_nowait()
+        await bot._process_post(post)
+
+        # 3. Verify the reply.
+        mock_driver.posts.create_post.assert_called_once()
+        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert opts["channel_id"] == "ch-abc"
+        assert opts["root_id"] == "post-100"
+        assert opts["message"] == "Here is the explanation."
+
+    @pytest.mark.asyncio
+    async def test_sequential_processing(self, bot, mock_driver, mock_opencode) -> None:
+        """Three concurrent messages are processed in FIFO order."""
+        responses = [
+            "Answer to first",
+            "Answer to second",
+            "Answer to third",
+        ]
+        call_count = 0
+
+        async def chat_side_effect(*args, **kwargs):
+            nonlocal call_count
+            idx = call_count
+            call_count += 1
+            return responses[idx]
+
+        mock_opencode.chat.side_effect = chat_side_effect
+
+        # Enqueue 3 messages.
+        for i in range(3):
+            raw = make_posted_event(
+                message=f"@ai-agent question {i}",
+                post_id=f"post-{i}",
+                channel_id="ch-1",
+                user_id="user-1",
+                mentions=[BOT_USER_ID],
+            )
+            await bot.handle_websocket_event(raw)
+
+        assert bot.queue.qsize() == 3
+
+        # Process them sequentially.
+        for _ in range(3):
+            post = bot.queue.get_nowait()
+            await bot._process_post(post)
+
+        assert bot.queue.empty()
+        assert mock_driver.posts.create_post.call_count == 3
+
+        # Verify responses in order.
+        calls = mock_driver.posts.create_post.call_args_list
+        for i, resp in enumerate(responses):
+            opts = calls[i].kwargs["options"]
+            assert opts["message"] == resp
+            assert opts["root_id"] == f"post-{i}"
+
+    @pytest.mark.asyncio
+    async def test_error_recovery(self, bot, mock_driver, mock_opencode) -> None:
+        """Second message errors; first and third still get correct replies."""
+        call_idx = 0
+
+        async def chat_side_effect(*args, **kwargs):
+            nonlocal call_idx
+            idx = call_idx
+            call_idx += 1
+            if idx == 1:
+                raise RuntimeError("simulated failure")
+            return f"reply-{idx}"
+
+        mock_opencode.chat.side_effect = chat_side_effect
+
+        # Enqueue 3 messages.
+        for i in range(3):
+            raw = make_posted_event(
+                message=f"@ai-agent task {i}",
+                post_id=f"post-{i}",
+                channel_id="ch-1",
+                user_id="user-1",
+                mentions=[BOT_USER_ID],
+            )
+            await bot.handle_websocket_event(raw)
+
+        # Process all 3.
+        for _ in range(3):
+            post = bot.queue.get_nowait()
+            await bot._process_post(post)
+
+        assert mock_driver.posts.create_post.call_count == 3
+        calls = mock_driver.posts.create_post.call_args_list
+
+        # First: normal reply.
+        assert calls[0].kwargs["options"]["message"] == "reply-0"
+        # Second: error reply.
+        assert "error" in calls[1].kwargs["options"]["message"].lower()
+        # Third: normal reply (recovery).
+        assert calls[2].kwargs["options"]["message"] == "reply-2"
+        # Busy should be reset.
+        assert bot._busy is False
