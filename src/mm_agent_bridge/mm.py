@@ -122,8 +122,8 @@ def is_mention_for_bot(
 
 def post_reply(
     driver: Driver, channel_id: str, root_id: str, message: str
-) -> None:
-    """Post an in-thread reply to Mattermost."""
+) -> str:
+    """Post an in-thread reply to Mattermost. Returns the new post ID."""
     logger.info(
         "post_reply: channel_id=%s, root_id=%s, message_length=%d",
         channel_id,
@@ -131,13 +131,55 @@ def post_reply(
         len(message),
     )
     try:
-        driver.posts.create_post(
+        resp = driver.posts.create_post(
             options={
                 "channel_id": channel_id,
                 "message": message,
                 "root_id": root_id,
             }
         )
-        logger.info("post_reply: successfully posted reply")
+        logger.info("post_reply: successfully posted reply, post_id=%s", resp.get("id"))
+        return resp["id"]
     except Exception:
         logger.exception("post_reply: FAILED to post reply to channel %s", channel_id)
+        return ""
+
+
+def post_message(driver: Driver, channel_id: str, message: str) -> str:
+    """Post a top-level message to a channel. Returns the new post ID."""
+    logger.info(
+        "post_message: channel_id=%s, message_length=%d",
+        channel_id,
+        len(message),
+    )
+    try:
+        resp = driver.posts.create_post(
+            options={
+                "channel_id": channel_id,
+                "message": message,
+            }
+        )
+        logger.info("post_message: successfully posted, post_id=%s", resp.get("id"))
+        return resp["id"]
+    except Exception:
+        logger.exception("post_message: FAILED to post to channel %s", channel_id)
+        return ""
+
+
+def update_post_message(driver: Driver, post_id: str, message: str) -> None:
+    """Update an existing post's message text."""
+    if not post_id:
+        logger.warning("update_post_message: empty post_id, skipping update")
+        return
+    logger.info(
+        "update_post_message: post_id=%s, new_message_length=%d",
+        post_id,
+        len(message),
+    )
+    try:
+        driver.posts.patch_post(post_id, options={"message": message})
+        logger.info("update_post_message: successfully updated post_id=%s", post_id)
+    except Exception:
+        logger.exception(
+            "update_post_message: FAILED to update post %s", post_id
+        )

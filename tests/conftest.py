@@ -61,55 +61,51 @@ def mock_opencode() -> AsyncMock:
 
 
 # ---------------------------------------------------------------------------
-# Mock httpx for OpenCodeClient._extract_response tests
+# Mock SDK for OpenCodeClient._extract_response tests
 # ---------------------------------------------------------------------------
 
-# Default messages JSON that httpx.AsyncClient.get() will return.
-_DEFAULT_MESSAGES_JSON = [
+# Default messages JSON that SDK session.with_raw_response.messages() will return.
+_DEFAULT_MESSAGES_JSON: list[dict[str, Any]] = [
     {"info": {"id": "user-msg-1", "role": "user"}, "parts": [{"type": "text", "text": "hello"}]},
     {"info": {"id": "assistant-msg-1", "role": "assistant"}, "parts": [{"type": "text", "text": "Here is my response."}]},
 ]
 
 
 @pytest.fixture
-def mock_httpx_messages(monkeypatch: pytest.MonkeyPatch):
-    """Patch httpx.AsyncClient so _extract_response uses mock data.
+def mock_sdk_messages():
+    """Build a mock ``_sdk`` whose ``session.with_raw_response.messages()``
+    returns data from ``container.response_json``.
 
-    Tests can override the response by setting
-    ``mock_httpx_messages.response_json`` before calling the method.
+    Returns a :class:`_SdkMockContainer` with:
+
+    * ``response_json`` — mutable list of message dicts; tests can
+      override this before calling methods that fetch messages.
+    * ``sdk`` — a :class:`~unittest.mock.MagicMock` to assign to
+      ``client._sdk``.
     """
-    container = _HttpxMockContainer(response_json=_DEFAULT_MESSAGES_JSON)
+    container = _SdkMockContainer(response_json=list(_DEFAULT_MESSAGES_JSON))
 
     class _FakeResponse:
-        status_code = 200
-
-        def __init__(self, data):
+        def __init__(self, data: Any):
             self._data = data
 
-        def raise_for_status(self):
-            pass
-
-        def json(self):
+        async def json(self) -> Any:
             return self._data
 
-    class _FakeAsyncClient:
-        async def __aenter__(self):
-            return self
+    async def _mock_messages(session_id: str) -> _FakeResponse:
+        return _FakeResponse(container.response_json)
 
-        async def __aexit__(self, *args):
-            pass
-
-        async def get(self, url, **kwargs):
-            return _FakeResponse(container.response_json)
-
-    monkeypatch.setattr("mm_agent_bridge.clients.opencode.httpx.AsyncClient", _FakeAsyncClient)
+    sdk = MagicMock()
+    sdk.session.with_raw_response.messages = AsyncMock(side_effect=_mock_messages)
+    container.sdk = sdk
     return container
 
 
 @dataclass
-class _HttpxMockContainer:
-    """Mutable container so tests can change the httpx response."""
+class _SdkMockContainer:
+    """Mutable container so tests can change the SDK mock response."""
     response_json: list[dict[str, Any]]
+    sdk: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +162,7 @@ def make_non_posted_event(event_type: str = "typing") -> str:
     return json.dumps({"event": event_type, "data": {}})
 
 
-# -- JSON factories for httpx mock (OpenCodeClient._extract_response tests) --
+# -- JSON factories for SDK mock (OpenCodeClient._extract_response tests) --
 
 
 def make_assistant_message_json(

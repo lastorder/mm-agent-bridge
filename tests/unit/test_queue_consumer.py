@@ -40,10 +40,12 @@ class TestProcessPost:
         post = _make_post(post_id="post-99")
         await bot._process_post(post)
 
+        # Ack is posted in-thread via create_post.
         mock_driver.posts.create_post.assert_called_once()
         opts = mock_driver.posts.create_post.call_args.kwargs["options"]
         assert opts["channel_id"] == "ch-1"
         assert opts["root_id"] == "post-99"
+        assert opts["message"] == "Processing your request..."
 
     @pytest.mark.asyncio
     async def test_uses_existing_root_id(self, bot, mock_driver, mock_opencode) -> None:
@@ -60,8 +62,10 @@ class TestProcessPost:
         post = _make_post()
         await bot._process_post(post)
 
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert opts["message"] == "The answer is 42."
+        # Ack is posted via create_post, then response updates via patch_post.
+        mock_driver.posts.patch_post.assert_called_once()
+        patch_args = mock_driver.posts.patch_post.call_args
+        assert patch_args.kwargs["options"]["message"] == "The answer is 42."
 
     @pytest.mark.asyncio
     async def test_error_posts_error_message(self, bot, mock_driver, mock_opencode) -> None:
@@ -69,8 +73,10 @@ class TestProcessPost:
         post = _make_post()
         await bot._process_post(post)
 
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert "error" in opts["message"].lower()
+        # Error updates the ack post via patch_post.
+        mock_driver.posts.patch_post.assert_called_once()
+        patch_args = mock_driver.posts.patch_post.call_args
+        assert "error" in patch_args.kwargs["options"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_error_does_not_block_queue(self, bot, mock_driver, mock_opencode) -> None:

@@ -37,6 +37,12 @@ class Config:
     copilot_session_id: str = ""  # optional; creates new session if empty/invalid
     copilot_model: str = "gpt-5.4"
 
+    # Greeting / goodbye messages
+    greeting_enabled: bool = False
+    greeting_channel_id: str = ""
+    greeting_message: str = "Agent is now online and ready."
+    goodbye_message: str = "Agent is shutting down. Goodbye."
+
     @classmethod
     def from_env(cls) -> Config:
         """Build a Config from the current environment variables.
@@ -76,6 +82,24 @@ class Config:
         copilot_session_id = os.environ.get("COPILOT_SESSION_ID", "").strip()
         copilot_model = os.environ.get("COPILOT_MODEL", "gpt-5.4").strip()
 
+        # --- Greeting / goodbye ---
+        greeting_enabled = os.environ.get("GREETING_ENABLED", "false").strip().lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        greeting_channel_id = os.environ.get("GREETING_CHANNEL_ID", "").strip()
+        if greeting_enabled and not greeting_channel_id:
+            raise ValueError(
+                "GREETING_CHANNEL_ID is required when GREETING_ENABLED is true"
+            )
+        greeting_message = os.environ.get(
+            "GREETING_MESSAGE", "Agent is now online and ready."
+        ).strip()
+        goodbye_message = os.environ.get(
+            "GOODBYE_MESSAGE", "Agent is shutting down. Goodbye."
+        ).strip()
+
         return cls(
             mm_url=mm_url,
             mm_token=mm_token,
@@ -89,4 +113,8 @@ class Config:
             opencode_provider_id=opencode_provider_id,
             copilot_session_id=copilot_session_id,
             copilot_model=copilot_model,
+            greeting_enabled=greeting_enabled,
+            greeting_channel_id=greeting_channel_id,
+            greeting_message=greeting_message,
+            goodbye_message=goodbye_message,
         )

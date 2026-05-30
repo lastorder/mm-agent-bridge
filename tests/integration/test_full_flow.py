@@ -29,12 +29,17 @@ class TestFullFlow:
         post = bot.queue.get_nowait()
         await bot._process_post(post)
 
-        # 3. Verify the reply.
+        # 3. Verify the ack was posted in-thread.
         mock_driver.posts.create_post.assert_called_once()
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert opts["channel_id"] == "ch-abc"
-        assert opts["root_id"] == "post-100"
-        assert opts["message"] == "Here is the explanation."
+        ack_opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert ack_opts["channel_id"] == "ch-abc"
+        assert ack_opts["root_id"] == "post-100"
+        assert ack_opts["message"] == "Processing your request..."
+
+        # 4. Verify the response updated the ack post.
+        mock_driver.posts.patch_post.assert_called_once()
+        patch_args = mock_driver.posts.patch_post.call_args
+        assert patch_args.kwargs["options"]["message"] == "Here is the explanation."
 
     @pytest.mark.asyncio
     async def test_sequential_processing(self, bot, mock_driver, mock_opencode) -> None:
@@ -73,14 +78,16 @@ class TestFullFlow:
             await bot._process_post(post)
 
         assert bot.queue.empty()
+        # 3 ack posts via create_post.
         assert mock_driver.posts.create_post.call_count == 3
+        # 3 response updates via patch_post.
+        assert mock_driver.posts.patch_post.call_count == 3
 
-        # Verify responses in order.
-        calls = mock_driver.posts.create_post.call_args_list
+        # Verify responses in order (via patch_post).
+        patch_calls = mock_driver.posts.patch_post.call_args_list
         for i, resp in enumerate(responses):
-            opts = calls[i].kwargs["options"]
+            opts = patch_calls[i].kwargs["options"]
             assert opts["message"] == resp
-            assert opts["root_id"] == f"post-{i}"
 
     @pytest.mark.asyncio
     async def test_error_recovery(self, bot, mock_driver, mock_opencode) -> None:
@@ -113,14 +120,17 @@ class TestFullFlow:
             post = bot.queue.get_nowait()
             await bot._process_post(post)
 
+        # 3 ack posts via create_post.
         assert mock_driver.posts.create_post.call_count == 3
-        calls = mock_driver.posts.create_post.call_args_list
+        # 3 response/error updates via patch_post.
+        assert mock_driver.posts.patch_post.call_count == 3
+        patch_calls = mock_driver.posts.patch_post.call_args_list
 
         # First: normal reply.
-        assert calls[0].kwargs["options"]["message"] == "reply-0"
+        assert patch_calls[0].kwargs["options"]["message"] == "reply-0"
         # Second: error reply.
-        assert "error" in calls[1].kwargs["options"]["message"].lower()
+        assert "error" in patch_calls[1].kwargs["options"]["message"].lower()
         # Third: normal reply (recovery).
-        assert calls[2].kwargs["options"]["message"] == "reply-2"
+        assert patch_calls[2].kwargs["options"]["message"] == "reply-2"
         # Busy should be reset.
         assert bot._busy is False

@@ -149,3 +149,90 @@ class TestCopilotConfig:
 
         cfg = Config.from_env()
         assert cfg.copilot_model == "claude-sonnet-4"
+
+
+class TestGreetingConfig:
+    """Tests for greeting/goodbye configuration."""
+
+    def test_greeting_disabled_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.greeting_enabled is False
+        assert cfg.greeting_channel_id == ""
+
+    @pytest.mark.parametrize("value", ["true", "True", "TRUE", "1", "yes", "YES"])
+    def test_greeting_enabled_truthy_values(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", value)
+        monkeypatch.setenv("GREETING_CHANNEL_ID", "ch-greeting")
+
+        cfg = Config.from_env()
+
+        assert cfg.greeting_enabled is True
+
+    @pytest.mark.parametrize("value", ["false", "False", "0", "no", ""])
+    def test_greeting_disabled_falsy_values(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", value)
+
+        cfg = Config.from_env()
+
+        assert cfg.greeting_enabled is False
+
+    def test_greeting_enabled_requires_channel_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", "true")
+        # No GREETING_CHANNEL_ID set.
+
+        with pytest.raises(ValueError, match="GREETING_CHANNEL_ID"):
+            Config.from_env()
+
+    def test_greeting_enabled_whitespace_channel_id_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", "true")
+        monkeypatch.setenv("GREETING_CHANNEL_ID", "   ")
+
+        with pytest.raises(ValueError, match="GREETING_CHANNEL_ID"):
+            Config.from_env()
+
+    def test_greeting_channel_not_required_when_disabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", "false")
+        # No GREETING_CHANNEL_ID — should NOT raise.
+
+        cfg = Config.from_env()
+        assert cfg.greeting_enabled is False
+
+    def test_default_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", "true")
+        monkeypatch.setenv("GREETING_CHANNEL_ID", "ch-123")
+
+        cfg = Config.from_env()
+
+        assert cfg.greeting_message == "Agent is now online and ready."
+        assert cfg.goodbye_message == "Agent is shutting down. Goodbye."
+
+    def test_custom_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("GREETING_ENABLED", "true")
+        monkeypatch.setenv("GREETING_CHANNEL_ID", "ch-123")
+        monkeypatch.setenv("GREETING_MESSAGE", "Bot online!")
+        monkeypatch.setenv("GOODBYE_MESSAGE", "Bot offline!")
+
+        cfg = Config.from_env()
+
+        assert cfg.greeting_message == "Bot online!"
+        assert cfg.goodbye_message == "Bot offline!"

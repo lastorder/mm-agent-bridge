@@ -17,7 +17,14 @@ from mattermostdriver import Driver
 
 from .clients import AgentClient, CopilotClient, OpenCodeClient
 from .config import Config
-from .mm import clean_mention, is_mention_for_bot, parse_posted_event, post_reply
+from .mm import (
+    clean_mention,
+    is_mention_for_bot,
+    parse_posted_event,
+    post_message,
+    post_reply,
+    update_post_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +78,42 @@ class AgentBridge:
         self.bot_user_id = self.driver.users.get_user("me")["id"]
         logger.info("run: logged in as bot_user_id=%s", self.bot_user_id)
 
+        self._send_greeting()
+
         logger.info("run: starting event loop and queue consumer")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.create_task(self._queue_consumer())
         logger.info("run: connecting websocket...")
         # init_websocket blocks; it will pick up the existing event loop.
-        self.driver.init_websocket(self.handle_websocket_event)
+        try:
+            self.driver.init_websocket(self.handle_websocket_event)
+        finally:
+            self._send_goodbye()
+
+    # -- Greeting / goodbye -------------------------------------------------
+
+    def _send_greeting(self) -> None:
+        """Post the greeting message to the configured channel (if enabled)."""
+        if not self.config.greeting_enabled:
+            return
+        logger.info("_send_greeting: posting to channel=%s", self.config.greeting_channel_id)
+        post_message(
+            self.driver,
+            self.config.greeting_channel_id,
+            self.config.greeting_message,
+        )
+
+    def _send_goodbye(self) -> None:
+        """Post the goodbye message to the configured channel (if enabled)."""
+        if not self.config.greeting_enabled:
+            return
+        logger.info("_send_goodbye: posting to channel=%s", self.config.greeting_channel_id)
+        post_message(
+            self.driver,
+            self.config.greeting_channel_id,
+            self.config.goodbye_message,
+        )
 
     # -- Mattermost websocket handler ---------------------------------------
 
@@ -151,6 +187,11 @@ class AgentBridge:
             self._busy = False
             return
 
+        # Post an acknowledgment reply first, then update it with the response.
+        ack_post_id = post_reply(
+            self.driver, channel_id, root_id, "Processing your request..."
+        )
+
         try:
             logger.info(
                 "_process_post: sending to agent (%s), text=%r",
@@ -163,14 +204,13 @@ class AgentBridge:
                 len(response_text),
                 response_text[:200],
             )
-            post_reply(self.driver, channel_id, root_id, response_text)
+            update_post_message(self.driver, ack_post_id, response_text)
 
         except Exception:
             logger.exception("_process_post: ERROR processing post_id=%s", post.get("id"))
-            post_reply(
+            update_post_message(
                 self.driver,
-                channel_id,
-                root_id,
+                ack_post_id,
                 "Sorry, an error occurred while processing your request.",
             )
         finally:

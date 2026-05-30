@@ -56,7 +56,14 @@ async def main() -> None:
         model_id=model_id,
         provider_id=provider_id,
     )
-    response = await client.chat(text)
+    try:
+        response = await client.chat(text)
+    except RuntimeError as exc:
+        print(f"[ERROR] {exc}")
+        sys.exit(1)
+    except Exception as exc:
+        print(f"[ERROR] {type(exc).__name__}: {exc}")
+        sys.exit(1)
 
     print(response)
 

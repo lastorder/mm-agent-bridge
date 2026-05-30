@@ -14,18 +14,20 @@ class TestExtractResponse:
     """Verify _extract_response parses the API JSON correctly."""
 
     @pytest.fixture
-    def client(self) -> OpenCodeClient:
-        return OpenCodeClient(
+    def client(self, mock_sdk_messages) -> OpenCodeClient:
+        c = OpenCodeClient(
             base_url="http://localhost:36000",
             session_id="test-session-id",
             model_id="test-model",
             provider_id="test-provider",
         )
+        c._sdk = mock_sdk_messages.sdk
+        return c
 
     @pytest.mark.asyncio
-    async def test_single_part(self, client, mock_httpx_messages) -> None:
+    async def test_single_part(self, client, mock_sdk_messages) -> None:
         msg_id = "resp-1"
-        mock_httpx_messages.response_json = [
+        mock_sdk_messages.response_json = [
             make_user_message_json("hello"),
             make_assistant_message_json("single answer", msg_id=msg_id),
         ]
@@ -34,9 +36,9 @@ class TestExtractResponse:
         assert text == "single answer"
 
     @pytest.mark.asyncio
-    async def test_multiple_parts(self, client, mock_httpx_messages) -> None:
+    async def test_multiple_parts(self, client, mock_sdk_messages) -> None:
         msg_id = "resp-2"
-        mock_httpx_messages.response_json = [
+        mock_sdk_messages.response_json = [
             make_assistant_message_json("part one", "part two", msg_id=msg_id),
         ]
 
@@ -44,21 +46,52 @@ class TestExtractResponse:
         assert text == "part one\npart two"
 
     @pytest.mark.asyncio
-    async def test_fallback_to_latest_assistant(self, client, mock_httpx_messages) -> None:
-        """When message ID doesn't match, fall back to last assistant message."""
-        mock_httpx_messages.response_json = [
+    async def test_message_not_found(self, client, mock_sdk_messages) -> None:
+        """When message ID doesn't match any item, return an error string."""
+        mock_sdk_messages.response_json = [
             make_user_message_json("hey"),
-            make_assistant_message_json("fallback answer", msg_id="other-id"),
+            make_assistant_message_json("some answer", msg_id="other-id"),
         ]
 
         text = await client._extract_response("nonexistent-id")
-        assert text == "fallback answer"
+        assert "not found" in text.lower()
 
     @pytest.mark.asyncio
-    async def test_no_messages(self, client, mock_httpx_messages) -> None:
-        mock_httpx_messages.response_json = []
+    async def test_no_messages(self, client, mock_sdk_messages) -> None:
+        mock_sdk_messages.response_json = []
         text = await client._extract_response("any-id")
-        assert "no response" in text.lower()
+        assert "not found" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_empty_message_id(self, client) -> None:
+        """When no message ID is provided, return an error string."""
+        text = await client._extract_response("")
+        assert "missing" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_message_with_error_raises(self, client, mock_sdk_messages) -> None:
+        """When the matched message has an LLM error, raise RuntimeError."""
+        error_msg = {
+            "info": {
+                "id": "err-msg-1",
+                "role": "assistant",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "message": "The requested model is not supported.",
+                        "statusCode": 400,
+                    },
+                },
+            },
+            "parts": [],
+        }
+        mock_sdk_messages.response_json = [
+            make_user_message_json("hello"),
+            error_msg,
+        ]
+
+        with pytest.raises(RuntimeError, match="model is not supported"):
+            await client._extract_response("err-msg-1")
 
 
 class TestChatPayload:
@@ -95,8 +128,10 @@ class TestChatErrorHandling:
         }
         await bot._process_post(post)
 
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert "error" in opts["message"].lower()
+        # Error updates the ack post via patch_post.
+        mock_driver.posts.patch_post.assert_called_once()
+        patch_opts = mock_driver.posts.patch_post.call_args.kwargs["options"]
+        assert "error" in patch_opts["message"].lower()
 
     @pytest.mark.asyncio
     async def test_api_error_handling(self, bot, mock_driver, mock_opencode) -> None:
@@ -112,8 +147,10 @@ class TestChatErrorHandling:
         }
         await bot._process_post(post)
 
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert "error" in opts["message"].lower()
+        # Error updates the ack post via patch_post.
+        mock_driver.posts.patch_post.assert_called_once()
+        patch_opts = mock_driver.posts.patch_post.call_args.kwargs["options"]
+        assert "error" in patch_opts["message"].lower()
         assert bot._busy is False
 
 
@@ -121,7 +158,7 @@ class TestOpenCodeSessionFallback:
     """Verify OpenCodeClient creates a new session when existing one is unavailable."""
 
     @pytest.mark.asyncio
-    async def test_valid_session_is_reused(self, mock_httpx_messages) -> None:
+    async def test_valid_session_is_reused(self, mock_sdk_messages) -> None:
         """When the session exists, it's used directly (no create call)."""
         client = OpenCodeClient(
             base_url="http://localhost:36000",
@@ -129,47 +166,24 @@ class TestOpenCodeSessionFallback:
             model_id="test-model",
             provider_id="test-provider",
         )
-        # mock_httpx_messages makes GET return 200 — session is valid.
+        client._sdk = mock_sdk_messages.sdk
+        # mock_sdk_messages makes messages() return 200 — session is valid.
         await client._ensure_session()
 
         assert client._session_id == "existing-session"
         assert client._session_validated is True
 
     @pytest.mark.asyncio
-    async def test_invalid_session_creates_new(self, monkeypatch) -> None:
+    async def test_invalid_session_creates_new(self) -> None:
         """When the session returns an error, a new one is created."""
-        # Mock httpx to return 404 for the session check.
-        class _FakeResponse:
-            status_code = 404
-
-            def raise_for_status(self):
-                from httpx import HTTPStatusError, Request, Response
-
-                raise HTTPStatusError(
-                    "Not Found",
-                    request=Request("GET", "http://x"),
-                    response=Response(404),
-                )
-
-        class _FakeAsyncClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def get(self, url, **kwargs):
-                return _FakeResponse()
-
-        monkeypatch.setattr(
-            "mm_agent_bridge.clients.opencode.httpx.AsyncClient", _FakeAsyncClient
-        )
-
-        # Mock the SDK session.create() to return a fake session.
         fake_session = MagicMock()
         fake_session.id = "new-session-id-abc"
 
         mock_sdk = MagicMock()
+        # messages() raises — session is invalid.
+        mock_sdk.session.with_raw_response.messages = AsyncMock(
+            side_effect=Exception("session not found"),
+        )
         mock_sdk.session.create = AsyncMock(return_value=fake_session)
 
         client = OpenCodeClient(

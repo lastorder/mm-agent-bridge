@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import signal
 import sys
 
 from dotenv import load_dotenv
@@ -29,6 +30,14 @@ def main() -> None:
 
     logger.info("Starting mm-agent-bridge (agent=%s)", config.agent_type)
     bot = AgentBridge(config=config)
+
+    def _handle_sigterm(signum: int, frame: object) -> None:
+        logger.info("Received signal %s, shutting down...", signum)
+        bot._send_goodbye()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     bot.run()
 
 
