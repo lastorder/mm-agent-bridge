@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +28,11 @@ from .mm import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _with_host_info(message: str) -> str:
+    """Append the current host name to an operational status message."""
+    return f"{message} (host: {socket.gethostname()})"
 
 
 def _build_agent_client(config: Config) -> AgentClient:
@@ -101,7 +107,7 @@ class AgentBridge:
         post_message(
             self.driver,
             self.config.greeting_channel_id,
-            self.config.greeting_message,
+            _with_host_info(self.config.greeting_message),
         )
 
     def _send_goodbye(self) -> None:
@@ -112,7 +118,7 @@ class AgentBridge:
         post_message(
             self.driver,
             self.config.greeting_channel_id,
-            self.config.goodbye_message,
+            _with_host_info(self.config.goodbye_message),
         )
 
     # -- Mattermost websocket handler ---------------------------------------

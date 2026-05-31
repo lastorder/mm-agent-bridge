@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -63,12 +62,13 @@ class TestSendGreeting:
     """Tests for AgentBridge._send_greeting()."""
 
     def test_posts_greeting_when_enabled(self, greeting_bot, mock_driver) -> None:
-        greeting_bot._send_greeting()
+        with patch("mm_agent_bridge.bot.socket.gethostname", return_value="host-1"):
+            greeting_bot._send_greeting()
 
         mock_driver.posts.create_post.assert_called_once_with(
             options={
                 "channel_id": "ch-greet",
-                "message": "Hello, I am online!",
+                "message": "Hello, I am online! (host: host-1)",
             }
         )
 
@@ -83,12 +83,13 @@ class TestSendGoodbye:
     """Tests for AgentBridge._send_goodbye()."""
 
     def test_posts_goodbye_when_enabled(self, greeting_bot, mock_driver) -> None:
-        greeting_bot._send_goodbye()
+        with patch("mm_agent_bridge.bot.socket.gethostname", return_value="host-1"):
+            greeting_bot._send_goodbye()
 
         mock_driver.posts.create_post.assert_called_once_with(
             options={
                 "channel_id": "ch-greet",
-                "message": "Goodbye, shutting down!",
+                "message": "Goodbye, shutting down! (host: host-1)",
             }
         )
 
