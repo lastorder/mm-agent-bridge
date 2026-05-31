@@ -183,3 +183,17 @@ def update_post_message(driver: Driver, post_id: str, message: str) -> None:
         logger.exception(
             "update_post_message: FAILED to update post %s", post_id
         )
+
+
+def post_or_update_reply(
+    driver: Driver, channel_id: str, root_id: str, post_id: str, message: str
+) -> str:
+    """Update an ack post when possible, otherwise post a new thread reply.
+
+    Returns the post ID that now contains the message, or ``""`` if both
+    operations fail.
+    """
+    if post_id:
+        update_post_message(driver, post_id, message)
+        return post_id
+    return post_reply(driver, channel_id, root_id, message)

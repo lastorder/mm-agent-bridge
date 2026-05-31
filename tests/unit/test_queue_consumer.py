@@ -150,3 +150,19 @@ class TestQueuedNotification:
 
         # No notification should be posted — only enqueued.
         mock_driver.posts.create_post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_notification_when_work_is_already_queued(self, bot, mock_driver) -> None:
+        bot._busy = False
+        await bot.queue.put({"id": "existing"})
+
+        raw = make_posted_event(
+            message="@ai-agent second request",
+            mentions=[BOT_USER_ID],
+            user_id="user-2",
+        )
+        await bot.handle_websocket_event(raw)
+
+        mock_driver.posts.create_post.assert_called_once()
+        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert "queue" in opts["message"].lower()

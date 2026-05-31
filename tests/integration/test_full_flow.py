@@ -78,8 +78,20 @@ class TestFullFlow:
             await bot._process_post(post)
 
         assert bot.queue.empty()
-        # 3 ack posts via create_post.
-        assert mock_driver.posts.create_post.call_count == 3
+        create_calls = mock_driver.posts.create_post.call_args_list
+        ack_calls = [
+            call
+            for call in create_calls
+            if call.kwargs["options"]["message"] == "Processing your request..."
+        ]
+        queued_calls = [
+            call
+            for call in create_calls
+            if "queue" in call.kwargs["options"]["message"].lower()
+        ]
+
+        assert len(ack_calls) == 3
+        assert len(queued_calls) == 2
         # 3 response updates via patch_post.
         assert mock_driver.posts.patch_post.call_count == 3
 
@@ -120,8 +132,20 @@ class TestFullFlow:
             post = bot.queue.get_nowait()
             await bot._process_post(post)
 
-        # 3 ack posts via create_post.
-        assert mock_driver.posts.create_post.call_count == 3
+        create_calls = mock_driver.posts.create_post.call_args_list
+        ack_calls = [
+            call
+            for call in create_calls
+            if call.kwargs["options"]["message"] == "Processing your request..."
+        ]
+        queued_calls = [
+            call
+            for call in create_calls
+            if "queue" in call.kwargs["options"]["message"].lower()
+        ]
+
+        assert len(ack_calls) == 3
+        assert len(queued_calls) == 2
         # 3 response/error updates via patch_post.
         assert mock_driver.posts.patch_post.call_count == 3
         patch_calls = mock_driver.posts.patch_post.call_args_list

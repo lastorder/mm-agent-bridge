@@ -23,8 +23,8 @@ from .mm import (
     is_mention_for_bot,
     parse_posted_event,
     post_message,
+    post_or_update_reply,
     post_reply,
-    update_post_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ class AgentBridge:
     queue: asyncio.Queue[dict[str, Any]] = field(init=False, repr=False)
     bot_user_id: str = field(init=False, default="")
     _busy: bool = field(init=False, default=False)
+    _goodbye_sent: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         self.driver = Driver(
@@ -112,7 +113,7 @@ class AgentBridge:
 
     def _send_goodbye(self) -> None:
         """Post the goodbye message to the configured channel (if enabled)."""
-        if not self.config.greeting_enabled:
+        if not self.config.greeting_enabled or getattr(self, "_goodbye_sent", False):
             return
         logger.info("_send_goodbye: posting to channel=%s", self.config.greeting_channel_id)
         post_message(
@@ -120,6 +121,7 @@ class AgentBridge:
             self.config.greeting_channel_id,
             _with_host_info(self.config.goodbye_message),
         )
+        self._goodbye_sent = True
 
     # -- Mattermost websocket handler ---------------------------------------
 
@@ -145,6 +147,8 @@ class AgentBridge:
             )
             return
 
+        should_notify_queued = self._busy or self.queue.qsize() > 0
+
         logger.info(
             "handle_websocket_event: enqueuing post_id=%s from user_id=%s "
             "(queue_size=%d, busy=%s)",
@@ -155,9 +159,9 @@ class AgentBridge:
         )
         await self.queue.put(post)
 
-        # Notify the user if the bot is already busy.
-        if self._busy:
-            logger.info("handle_websocket_event: bot is busy, posting queued notice")
+        # Notify the user when this request will wait behind existing work.
+        if should_notify_queued:
+            logger.info("handle_websocket_event: request is queued, posting queued notice")
             post_reply(
                 self.driver,
                 channel_id=post["channel_id"],
@@ -210,12 +214,20 @@ class AgentBridge:
                 len(response_text),
                 response_text[:200],
             )
-            update_post_message(self.driver, ack_post_id, response_text)
+            post_or_update_reply(
+                self.driver,
+                channel_id,
+                root_id,
+                ack_post_id,
+                response_text,
+            )
 
         except Exception:
             logger.exception("_process_post: ERROR processing post_id=%s", post.get("id"))
-            update_post_message(
+            post_or_update_reply(
                 self.driver,
+                channel_id,
+                root_id,
                 ack_post_id,
                 "Sorry, an error occurred while processing your request.",
             )

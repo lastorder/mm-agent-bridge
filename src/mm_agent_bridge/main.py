@@ -33,7 +33,6 @@ def main() -> None:
 
     def _handle_sigterm(signum: int, frame: object) -> None:
         logger.info("Received signal %s, shutting down...", signum)
-        bot._send_goodbye()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _handle_sigterm)

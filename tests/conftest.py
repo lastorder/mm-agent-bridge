@@ -122,6 +122,7 @@ def bot(config: Config, mock_driver: MagicMock, mock_opencode: AsyncMock) -> Age
     b.opencode = mock_opencode
     b.bot_user_id = BOT_USER_ID
     b._busy = False
+    b._goodbye_sent = False
 
     import asyncio
 

@@ -49,6 +49,7 @@ def greeting_bot(
     b.opencode = mock_opencode
     b.bot_user_id = BOT_USER_ID
     b._busy = False
+    b._goodbye_sent = False
     b.queue = asyncio.Queue()
     return b
 
@@ -97,6 +98,18 @@ class TestSendGoodbye:
         bot._send_goodbye()
 
         mock_driver.posts.create_post.assert_not_called()
+
+    def test_posts_goodbye_only_once(self, greeting_bot, mock_driver) -> None:
+        with patch("mm_agent_bridge.bot.socket.gethostname", return_value="host-1"):
+            greeting_bot._send_goodbye()
+            greeting_bot._send_goodbye()
+
+        mock_driver.posts.create_post.assert_called_once_with(
+            options={
+                "channel_id": "ch-greet",
+                "message": "Goodbye, shutting down! (host: host-1)",
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +201,56 @@ class TestAckThenUpdate:
         assert "error" in patch_opts["message"].lower()
         # The ack post ID should match.
         assert mock_driver.posts.patch_post.call_args.args[0] == "ack-id-err"
+
+    @pytest.mark.asyncio
+    async def test_success_posts_reply_when_ack_creation_fails(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        mock_driver.posts.create_post.side_effect = [
+            RuntimeError("ack failed"),
+            {"id": "final-reply-id"},
+        ]
+        mock_opencode.chat.return_value = "Final answer."
+
+        post = {
+            "id": "p1",
+            "channel_id": "ch-1",
+            "user_id": "u1",
+            "message": "@ai-agent question",
+            "root_id": "",
+        }
+        await bot._process_post(post)
+
+        assert mock_driver.posts.create_post.call_count == 2
+        assert mock_driver.posts.patch_post.call_count == 0
+        final_opts = mock_driver.posts.create_post.call_args_list[1].kwargs["options"]
+        assert final_opts["root_id"] == "p1"
+        assert final_opts["message"] == "Final answer."
+
+    @pytest.mark.asyncio
+    async def test_error_posts_reply_when_ack_creation_fails(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        mock_driver.posts.create_post.side_effect = [
+            RuntimeError("ack failed"),
+            {"id": "error-reply-id"},
+        ]
+        mock_opencode.chat.side_effect = RuntimeError("boom")
+
+        post = {
+            "id": "p1",
+            "channel_id": "ch-1",
+            "user_id": "u1",
+            "message": "@ai-agent fail",
+            "root_id": "",
+        }
+        await bot._process_post(post)
+
+        assert mock_driver.posts.create_post.call_count == 2
+        assert mock_driver.posts.patch_post.call_count == 0
+        final_opts = mock_driver.posts.create_post.call_args_list[1].kwargs["options"]
+        assert final_opts["root_id"] == "p1"
+        assert "error" in final_opts["message"].lower()
 
     @pytest.mark.asyncio
     async def test_empty_message_no_ack(self, bot, mock_driver, mock_opencode) -> None:
