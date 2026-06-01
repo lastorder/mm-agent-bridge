@@ -34,12 +34,12 @@ class TestFullFlow:
         ack_opts = mock_driver.posts.create_post.call_args.kwargs["options"]
         assert ack_opts["channel_id"] == "ch-abc"
         assert ack_opts["root_id"] == "post-100"
-        assert ack_opts["message"] == "Processing your request..."
+        assert ack_opts["message"] == "@user-user-x Processing your request..."
 
         # 4. Verify the response updated the ack post.
         mock_driver.posts.patch_post.assert_called_once()
         patch_args = mock_driver.posts.patch_post.call_args
-        assert patch_args.kwargs["options"]["message"] == "Here is the explanation."
+        assert patch_args.kwargs["options"]["message"] == "@user-user-x Here is the explanation."
 
     @pytest.mark.asyncio
     async def test_sequential_processing(self, bot, mock_driver, mock_opencode) -> None:
@@ -82,7 +82,7 @@ class TestFullFlow:
         ack_calls = [
             call
             for call in create_calls
-            if call.kwargs["options"]["message"] == "Processing your request..."
+            if "processing" in call.kwargs["options"]["message"].lower()
         ]
         queued_calls = [
             call
@@ -90,16 +90,23 @@ class TestFullFlow:
             if "queue" in call.kwargs["options"]["message"].lower()
         ]
 
-        assert len(ack_calls) == 3
+        # Only the first (non-queued) message creates a new ack post;
+        # the other two reuse the queued-notice post via patch_post.
+        assert len(ack_calls) == 1
         assert len(queued_calls) == 2
-        # 3 response updates via patch_post.
-        assert mock_driver.posts.patch_post.call_count == 3
+        # 5 patch_post calls: 1 answer + 2*(processing update + answer).
+        assert mock_driver.posts.patch_post.call_count == 5
 
-        # Verify responses in order (via patch_post).
+        # Verify responses in order — filter out "Processing your request..." updates.
         patch_calls = mock_driver.posts.patch_post.call_args_list
+        response_patches = [
+            c for c in patch_calls
+            if "Processing your request..." not in c.kwargs["options"]["message"]
+        ]
+        assert len(response_patches) == 3
         for i, resp in enumerate(responses):
-            opts = patch_calls[i].kwargs["options"]
-            assert opts["message"] == resp
+            opts = response_patches[i].kwargs["options"]
+            assert resp in opts["message"]
 
     @pytest.mark.asyncio
     async def test_error_recovery(self, bot, mock_driver, mock_opencode) -> None:
@@ -136,7 +143,7 @@ class TestFullFlow:
         ack_calls = [
             call
             for call in create_calls
-            if call.kwargs["options"]["message"] == "Processing your request..."
+            if "processing" in call.kwargs["options"]["message"].lower()
         ]
         queued_calls = [
             call
@@ -144,17 +151,24 @@ class TestFullFlow:
             if "queue" in call.kwargs["options"]["message"].lower()
         ]
 
-        assert len(ack_calls) == 3
+        assert len(ack_calls) == 1
         assert len(queued_calls) == 2
-        # 3 response/error updates via patch_post.
-        assert mock_driver.posts.patch_post.call_count == 3
+        # 5 patch_post calls: 1 answer + 2*(processing update + answer/error).
+        assert mock_driver.posts.patch_post.call_count == 5
         patch_calls = mock_driver.posts.patch_post.call_args_list
 
+        # Filter out "Processing your request..." updates to get only response/error patches.
+        response_patches = [
+            c for c in patch_calls
+            if "Processing your request..." not in c.kwargs["options"]["message"]
+        ]
+        assert len(response_patches) == 3
+
         # First: normal reply.
-        assert patch_calls[0].kwargs["options"]["message"] == "reply-0"
+        assert "reply-0" in response_patches[0].kwargs["options"]["message"]
         # Second: error reply.
-        assert "error" in patch_calls[1].kwargs["options"]["message"].lower()
+        assert "error" in response_patches[1].kwargs["options"]["message"].lower()
         # Third: normal reply (recovery).
-        assert patch_calls[2].kwargs["options"]["message"] == "reply-2"
+        assert "reply-2" in response_patches[2].kwargs["options"]["message"]
         # Busy should be reset.
         assert bot._busy is False

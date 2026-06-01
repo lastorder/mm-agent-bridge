@@ -42,7 +42,13 @@ def config() -> Config:
 @pytest.fixture
 def mock_driver() -> MagicMock:
     driver = MagicMock()
-    driver.users.get_user.return_value = {"id": BOT_USER_ID}
+
+    def _get_user(user_id: str) -> dict[str, str]:
+        if user_id == "me":
+            return {"id": BOT_USER_ID, "username": "ai-agent"}
+        return {"id": user_id, "username": f"user-{user_id}"}
+
+    driver.users.get_user.side_effect = _get_user
     driver.posts.create_post.return_value = {"id": "new-post-id"}
     return driver
 
@@ -119,7 +125,7 @@ def bot(config: Config, mock_driver: MagicMock, mock_opencode: AsyncMock) -> Age
     b = AgentBridge.__new__(AgentBridge)
     b.config = config
     b.driver = mock_driver
-    b.opencode = mock_opencode
+    b.agent = mock_opencode
     b.bot_user_id = BOT_USER_ID
     b._busy = False
     b._goodbye_sent = False

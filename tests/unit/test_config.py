@@ -236,3 +236,41 @@ class TestGreetingConfig:
 
         assert cfg.greeting_message == "Bot online!"
         assert cfg.goodbye_message == "Bot offline!"
+
+
+class TestMessageConfig:
+    """Tests for configurable bot messages (MSG_* env vars)."""
+
+    def test_default_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.msg_queued == "Your request has been queued. Please wait..."
+        assert cfg.msg_processing == "Processing your request..."
+        assert cfg.msg_error == "Sorry, an error occurred while processing your request."
+        assert cfg.msg_empty == "Empty message after removing mention."
+        assert cfg.msg_show_host is False
+
+    def test_custom_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("MSG_QUEUED", "Please hold...")
+        monkeypatch.setenv("MSG_PROCESSING", "Working on it...")
+        monkeypatch.setenv("MSG_ERROR", "Oops, something broke.")
+        monkeypatch.setenv("MSG_EMPTY", "Nothing to do.")
+
+        cfg = Config.from_env()
+
+        assert cfg.msg_queued == "Please hold..."
+        assert cfg.msg_processing == "Working on it..."
+        assert cfg.msg_error == "Oops, something broke."
+        assert cfg.msg_empty == "Nothing to do."
+
+    @pytest.mark.parametrize("value", ["true", "True", "1", "yes"])
+    def test_msg_show_host_enabled(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("MSG_SHOW_HOST", value)
+
+        cfg = Config.from_env()
+
+        assert cfg.msg_show_host is True

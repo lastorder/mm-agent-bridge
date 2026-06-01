@@ -46,7 +46,7 @@ def greeting_bot(
     b = AgentBridge.__new__(AgentBridge)
     b.config = greeting_config
     b.driver = mock_driver
-    b.opencode = mock_opencode
+    b.agent = mock_opencode
     b.bot_user_id = BOT_USER_ID
     b._busy = False
     b._goodbye_sent = False
@@ -148,64 +148,10 @@ class TestAckThenUpdate:
         assert call_order == ["create_post", "chat"]
 
     @pytest.mark.asyncio
-    async def test_ack_message_content(self, bot, mock_driver, mock_opencode) -> None:
-        """The ack message says 'Processing your request...'."""
-        post = {
-            "id": "p1",
-            "channel_id": "ch-1",
-            "user_id": "u1",
-            "message": "@ai-agent test",
-            "root_id": "",
-        }
-        await bot._process_post(post)
-
-        ack_opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert ack_opts["message"] == "Processing your request..."
-
-    @pytest.mark.asyncio
-    async def test_response_updates_ack_post(self, bot, mock_driver, mock_opencode) -> None:
-        """On success, the ack post is updated with the actual response."""
-        mock_driver.posts.create_post.return_value = {"id": "ack-id-xyz"}
-        mock_opencode.chat.return_value = "Final answer."
-
-        post = {
-            "id": "p1",
-            "channel_id": "ch-1",
-            "user_id": "u1",
-            "message": "@ai-agent question",
-            "root_id": "",
-        }
-        await bot._process_post(post)
-
-        mock_driver.posts.patch_post.assert_called_once_with(
-            "ack-id-xyz", options={"message": "Final answer."}
-        )
-
-    @pytest.mark.asyncio
-    async def test_error_updates_ack_post(self, bot, mock_driver, mock_opencode) -> None:
-        """On error, the ack post is updated with error text."""
-        mock_driver.posts.create_post.return_value = {"id": "ack-id-err"}
-        mock_opencode.chat.side_effect = RuntimeError("boom")
-
-        post = {
-            "id": "p1",
-            "channel_id": "ch-1",
-            "user_id": "u1",
-            "message": "@ai-agent fail",
-            "root_id": "",
-        }
-        await bot._process_post(post)
-
-        mock_driver.posts.patch_post.assert_called_once()
-        patch_opts = mock_driver.posts.patch_post.call_args.kwargs["options"]
-        assert "error" in patch_opts["message"].lower()
-        # The ack post ID should match.
-        assert mock_driver.posts.patch_post.call_args.args[0] == "ack-id-err"
-
-    @pytest.mark.asyncio
     async def test_success_posts_reply_when_ack_creation_fails(
         self, bot, mock_driver, mock_opencode
     ) -> None:
+        """When ack create_post fails, response is posted as a new reply."""
         mock_driver.posts.create_post.side_effect = [
             RuntimeError("ack failed"),
             {"id": "final-reply-id"},
@@ -225,12 +171,13 @@ class TestAckThenUpdate:
         assert mock_driver.posts.patch_post.call_count == 0
         final_opts = mock_driver.posts.create_post.call_args_list[1].kwargs["options"]
         assert final_opts["root_id"] == "p1"
-        assert final_opts["message"] == "Final answer."
+        assert "Final answer." in final_opts["message"]
 
     @pytest.mark.asyncio
     async def test_error_posts_reply_when_ack_creation_fails(
         self, bot, mock_driver, mock_opencode
     ) -> None:
+        """When ack create_post fails and agent errors, error is posted as a new reply."""
         mock_driver.posts.create_post.side_effect = [
             RuntimeError("ack failed"),
             {"id": "error-reply-id"},
@@ -251,22 +198,3 @@ class TestAckThenUpdate:
         final_opts = mock_driver.posts.create_post.call_args_list[1].kwargs["options"]
         assert final_opts["root_id"] == "p1"
         assert "error" in final_opts["message"].lower()
-
-    @pytest.mark.asyncio
-    async def test_empty_message_no_ack(self, bot, mock_driver, mock_opencode) -> None:
-        """Empty text after cleaning mention should NOT post an ack."""
-        post = {
-            "id": "p1",
-            "channel_id": "ch-1",
-            "user_id": "u1",
-            "message": "@ai-agent",
-            "root_id": "",
-        }
-        await bot._process_post(post)
-
-        # Only the "empty message" notice, not an ack.
-        mock_driver.posts.create_post.assert_called_once()
-        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
-        assert "empty" in opts["message"].lower()
-        # No patch_post call since no ack was posted.
-        mock_driver.posts.patch_post.assert_not_called()

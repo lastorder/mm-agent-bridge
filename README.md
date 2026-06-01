@@ -190,7 +190,7 @@ Then use a **different account** to mention `@ai-agent` in any channel — the b
 ### Running tests
 
 ```bash
-uv run pytest                        # all 72 tests (~0.1s)
+uv run pytest                        # all tests (~0.1s)
 uv run pytest tests/unit/ -v         # unit tests only
 uv run pytest tests/integration/ -v  # integration tests only
 ```
@@ -250,3 +250,26 @@ tests/
 | `COPILOT_MODEL` | No | `gpt-5.4` | Model name |
 
 Authentication is handled automatically by the Copilot CLI. Alternatively, set one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in your environment.
+
+### Greeting / goodbye messages
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GREETING_ENABLED` | No | `false` | Enable startup/shutdown messages (`true`/`1`/`yes`) |
+| `GREETING_CHANNEL_ID` | When enabled | — | Channel ID to post greeting/goodbye messages to |
+| `GREETING_MESSAGE` | No | `Agent is now online and ready.` | Startup message text |
+| `GOODBYE_MESSAGE` | No | `Agent is shutting down. Goodbye.` | Shutdown message text |
+
+When enabled, the bot posts a greeting message when it starts and a goodbye message when it shuts down (including SIGTERM). Both messages include a `(host: <hostname>)` suffix.
+
+### Bot reply messages
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `MSG_QUEUED` | No | `Your request has been queued. Please wait...` | Shown when a request is queued behind other work |
+| `MSG_PROCESSING` | No | `Processing your request...` | Acknowledgment shown while the agent is working |
+| `MSG_ERROR` | No | `Sorry, an error occurred while processing your request.` | Shown when the agent call fails |
+| `MSG_EMPTY` | No | `Empty message after removing mention.` | Shown when the mention contains no text |
+| `MSG_SHOW_HOST` | No | `false` | Append `(host: <hostname>)` on a new line to all reply messages (`true`/`1`/`yes`) |
+
+All reply messages are prefixed with `@username` to notify the requesting user. When a request is queued, the queued notice, processing acknowledgment, and final response are consolidated into a single post that gets updated through each stage.

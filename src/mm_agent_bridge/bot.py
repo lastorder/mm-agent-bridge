@@ -25,6 +25,7 @@ from .mm import (
     post_message,
     post_or_update_reply,
     post_reply,
+    update_post_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class AgentBridge:
 
     config: Config
     driver: Driver = field(init=False, repr=False)
-    opencode: AgentClient = field(init=False, repr=False)
+    agent: AgentClient = field(init=False, repr=False)
     queue: asyncio.Queue[dict[str, Any]] = field(init=False, repr=False)
     bot_user_id: str = field(init=False, default="")
     _busy: bool = field(init=False, default=False)
@@ -73,7 +74,7 @@ class AgentBridge:
                 "verify": self.config.mm_scheme == "https",
             }
         )
-        self.opencode = _build_agent_client(self.config)
+        self.agent = _build_agent_client(self.config)
         self.queue = asyncio.Queue()
 
     # -- public entry point -------------------------------------------------
@@ -162,12 +163,14 @@ class AgentBridge:
         # Notify the user when this request will wait behind existing work.
         if should_notify_queued:
             logger.info("handle_websocket_event: request is queued, posting queued notice")
-            post_reply(
+            mention_prefix = self._get_mention_prefix(post.get("user_id", ""))
+            queued_post_id = post_reply(
                 self.driver,
                 channel_id=post["channel_id"],
                 root_id=post.get("root_id") or post["id"],
-                message="Your request has been queued. Please wait...",
+                message=self._with_host_suffix(f"{mention_prefix}{self.config.msg_queued}"),
             )
+            post["_ack_post_id"] = queued_post_id
 
     # -- Queue consumer (serial processing) ---------------------------------
 
@@ -190,17 +193,24 @@ class AgentBridge:
         channel_id = post["channel_id"]
         root_id = post.get("root_id") or post["id"]
         text = clean_mention(post.get("message", ""), self.config.bot_mention_name)
+        mention_prefix = self._get_mention_prefix(post.get("user_id", ""))
 
         if not text:
             logger.info("_process_post: empty text after cleaning mention, replying with notice")
-            post_reply(self.driver, channel_id, root_id, "Empty message after removing mention.")
+            post_reply(self.driver, channel_id, root_id, self._with_host_suffix(self.config.msg_empty))
             self._busy = False
             return
 
         # Post an acknowledgment reply first, then update it with the response.
-        ack_post_id = post_reply(
-            self.driver, channel_id, root_id, "Processing your request..."
-        )
+        # If the queued notice already created a post, reuse it.
+        ack_post_id = post.get("_ack_post_id", "")
+        ack_message = self._with_host_suffix(f"{mention_prefix}{self.config.msg_processing}")
+        if ack_post_id:
+            update_post_message(self.driver, ack_post_id, ack_message)
+        else:
+            ack_post_id = post_reply(
+                self.driver, channel_id, root_id, ack_message
+            )
 
         try:
             logger.info(
@@ -208,7 +218,7 @@ class AgentBridge:
                 self.config.agent_type,
                 text[:120],
             )
-            response_text = await self.opencode.chat(text)
+            response_text = await self.agent.chat(text)
             logger.info(
                 "_process_post: got response (length=%d): %r",
                 len(response_text),
@@ -219,7 +229,7 @@ class AgentBridge:
                 channel_id,
                 root_id,
                 ack_post_id,
-                response_text,
+                self._with_host_suffix(f"{mention_prefix}{response_text}"),
             )
 
         except Exception:
@@ -229,8 +239,31 @@ class AgentBridge:
                 channel_id,
                 root_id,
                 ack_post_id,
-                "Sorry, an error occurred while processing your request.",
+                self._with_host_suffix(f"{mention_prefix}{self.config.msg_error}"),
             )
         finally:
             self._busy = False
             logger.info("_process_post: done, busy=False")
+
+    def _get_mention_prefix(self, user_id: str) -> str:
+        """Return ``@username `` for *user_id*, or ``""`` on failure."""
+        if not user_id:
+            return ""
+        try:
+            user = self.driver.users.get_user(user_id)
+            username = user.get("username", "")
+            if username:
+                return f"@{username} "
+        except Exception:
+            logger.warning(
+                "_get_mention_prefix: failed to look up user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+        return ""
+
+    def _with_host_suffix(self, message: str) -> str:
+        """Append a newline and host info if ``msg_show_host`` is enabled."""
+        if not self.config.msg_show_host:
+            return message
+        return f"{message}\n(host: {socket.gethostname()})"
