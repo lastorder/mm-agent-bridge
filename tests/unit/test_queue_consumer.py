@@ -214,6 +214,200 @@ class TestQueuedNotification:
         assert "Done." in final_opts["message"]
 
 
+class TestThreadContext:
+    """Tests for thread context fetching and formatting in _process_post."""
+
+    def _thread_response(self, posts: list[dict]) -> dict:
+        posts_map = {p["id"]: p for p in posts}
+        order = [p["id"] for p in reversed(posts)]
+        return {"order": order, "posts": posts_map}
+
+    @pytest.mark.asyncio
+    async def test_thread_context_prepended_to_agent_text(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """When post is in a thread, context is prepended to agent.chat() input."""
+        thread_posts = [
+            {"id": "root-1", "user_id": "u1", "message": "Help me fix auth", "create_at": 1000},
+            {"id": "p2", "user_id": "u2", "message": "Check auth.ts", "create_at": 2000},
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        post = _make_post(
+            message="@ai-agent fix the bug",
+            post_id="p3",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        # Verify agent.chat was called with context prepended.
+        call_text = mock_opencode.chat.call_args.args[0]
+        assert "[Thread context]" in call_text
+        assert "@user-u1: Help me fix auth" in call_text
+        assert "@user-u2: Check auth.ts" in call_text
+        assert "[Current request]" in call_text
+        assert call_text.endswith("fix the bug")
+
+    @pytest.mark.asyncio
+    async def test_no_context_for_top_level_post(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """Top-level posts (no root_id) should NOT fetch thread context."""
+        post = _make_post(message="@ai-agent hello", root_id="")
+        await bot._process_post(post)
+
+        mock_driver.posts.get_thread.assert_not_called()
+        assert mock_opencode.chat.call_args.args[0] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_thread_context_excludes_triggering_post(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """The triggering post itself should be excluded from context."""
+        thread_posts = [
+            {"id": "root-1", "user_id": "u1", "message": "root msg", "create_at": 1000},
+            {"id": "trigger-post", "user_id": "u2", "message": "@ai-agent do stuff", "create_at": 2000},
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        post = _make_post(
+            message="@ai-agent do stuff",
+            post_id="trigger-post",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        call_text = mock_opencode.chat.call_args.args[0]
+        assert "@user-u1: root msg" in call_text
+        # The trigger post message should NOT appear in context.
+        assert "@user-u2: @ai-agent do stuff" not in call_text
+
+    @pytest.mark.asyncio
+    async def test_empty_thread_context_does_not_prepend(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """If thread has no other messages, no context header is added."""
+        # Thread only has the triggering post itself.
+        thread_posts = [
+            {"id": "trigger-post", "user_id": "u1", "message": "@ai-agent hi", "create_at": 1000},
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        post = _make_post(
+            message="@ai-agent hi",
+            post_id="trigger-post",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        call_text = mock_opencode.chat.call_args.args[0]
+        assert "[Thread context]" not in call_text
+        assert call_text == "hi"
+
+    @pytest.mark.asyncio
+    async def test_thread_fetch_failure_proceeds_without_context(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """If get_post_thread fails, processing continues without context."""
+        mock_driver.posts.get_thread.side_effect = RuntimeError("API down")
+
+        post = _make_post(
+            message="@ai-agent hello",
+            post_id="p2",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        # Agent still called with just the cleaned text.
+        call_text = mock_opencode.chat.call_args.args[0]
+        assert call_text == "hello"
+
+    @pytest.mark.asyncio
+    async def test_thread_context_includes_bot_replies(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """Bot's own previous replies in the thread should be included."""
+        thread_posts = [
+            {"id": "root-1", "user_id": "u1", "message": "How does auth work?", "create_at": 1000},
+            {"id": "p2", "user_id": BOT_USER_ID, "message": "Auth uses JWT tokens.", "create_at": 2000},
+            {"id": "p3", "user_id": "u1", "message": "@ai-agent tell me more", "create_at": 3000},
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        post = _make_post(
+            message="@ai-agent tell me more",
+            post_id="p3",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        call_text = mock_opencode.chat.call_args.args[0]
+        assert "@user-u1: How does auth work?" in call_text
+        assert f"@user-{BOT_USER_ID}: Auth uses JWT tokens." in call_text
+
+    @pytest.mark.asyncio
+    async def test_thread_context_respects_max_messages(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """Only the most recent N messages are included in context."""
+        from dataclasses import replace
+
+        # Override config to limit to 2 messages.
+        bot.config = replace(bot.config, thread_context_max_messages=2)
+
+        thread_posts = [
+            {"id": f"p{i}", "user_id": "u1", "message": f"msg {i}", "create_at": i * 1000}
+            for i in range(1, 6)  # 5 posts
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        post = _make_post(
+            message="@ai-agent now",
+            post_id="p6",
+            root_id="p1",
+        )
+        await bot._process_post(post)
+
+        call_text = mock_opencode.chat.call_args.args[0]
+        # Should only include the 2 most recent (p4, p5).
+        assert "msg 4" in call_text
+        assert "msg 5" in call_text
+        assert "msg 1" not in call_text
+        assert "msg 2" not in call_text
+        assert "msg 3" not in call_text
+
+    @pytest.mark.asyncio
+    async def test_username_lookup_failure_uses_user_id(
+        self, bot, mock_driver, mock_opencode
+    ) -> None:
+        """When username lookup fails, user_id is used as fallback."""
+        thread_posts = [
+            {"id": "root-1", "user_id": "unknown-user", "message": "hi", "create_at": 1000},
+        ]
+        mock_driver.posts.get_thread.return_value = self._thread_response(thread_posts)
+
+        # Make get_user raise for the unknown user.
+        original_side_effect = mock_driver.users.get_user.side_effect
+
+        def selective_get_user(uid):
+            if uid == "unknown-user":
+                raise RuntimeError("not found")
+            return original_side_effect(uid)
+
+        mock_driver.users.get_user.side_effect = selective_get_user
+
+        post = _make_post(
+            message="@ai-agent respond",
+            post_id="p2",
+            root_id="root-1",
+        )
+        await bot._process_post(post)
+
+        call_text = mock_opencode.chat.call_args.args[0]
+        # Falls back to user_id as username.
+        assert "@unknown-user: hi" in call_text
+
+
 class TestHostSuffix:
     """Tests for the msg_show_host feature appending host info to replies."""
 

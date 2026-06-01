@@ -273,3 +273,16 @@ When enabled, the bot posts a greeting message when it starts and a goodbye mess
 | `MSG_SHOW_HOST` | No | `false` | Append `(host: <hostname>)` on a new line to all reply messages (`true`/`1`/`yes`) |
 
 All reply messages are prefixed with `@username` to notify the requesting user. When a request is queued, the queued notice, processing acknowledgment, and final response are consolidated into a single post that gets updated through each stage.
+
+### Thread context
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `THREAD_CONTEXT_MAX_MESSAGES` | No | `20` | Maximum number of previous thread messages to include as context |
+
+When `@ai-agent` is mentioned inside an existing thread, the bot fetches previous messages in that thread and includes them as context when calling the agent. This allows the agent to understand the conversation history and provide more relevant responses.
+
+- Messages are formatted as `@username: message text`
+- Both human and bot messages are included
+- Only the most recent N messages are sent (controlled by `THREAD_CONTEXT_MAX_MESSAGES`)
+- If the thread fetch fails, the bot proceeds without context (graceful degradation)

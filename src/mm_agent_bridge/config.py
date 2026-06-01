@@ -54,6 +54,9 @@ class Config:
     greeting_message: str = "Agent is now online and ready."
     goodbye_message: str = "Agent is shutting down. Goodbye."
 
+    # Thread context
+    thread_context_max_messages: int = 20
+
     # Bot messages (user-facing, shown in thread replies)
     msg_queued: str = "Your request has been queued. Please wait..."
     msg_processing: str = "Processing your request..."
@@ -116,6 +119,7 @@ class Config:
             greeting_channel_id=greeting_channel_id,
             greeting_message=_get("GREETING_MESSAGE", "Agent is now online and ready."),
             goodbye_message=_get("GOODBYE_MESSAGE", "Agent is shutting down. Goodbye."),
+            thread_context_max_messages=int(_get("THREAD_CONTEXT_MAX_MESSAGES", "20")),
             msg_queued=_get("MSG_QUEUED", "Your request has been queued. Please wait..."),
             msg_processing=_get("MSG_PROCESSING", "Processing your request..."),
             msg_error=_get("MSG_ERROR", "Sorry, an error occurred while processing your request."),

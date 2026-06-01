@@ -20,6 +20,7 @@ from .clients import AgentClient, CopilotClient, OpenCodeClient
 from .config import Config
 from .mm import (
     clean_mention,
+    get_thread_messages,
     is_mention_for_bot,
     parse_posted_event,
     post_message,
@@ -201,6 +202,12 @@ class AgentBridge:
             self._busy = False
             return
 
+        # Prepend thread context when the message is in an existing thread.
+        if post.get("root_id"):
+            context = self._build_thread_context(post)
+            if context:
+                text = f"{context}\n{text}"
+
         # Post an acknowledgment reply first, then update it with the response.
         # If the queued notice already created a post, reuse it.
         ack_post_id = post.get("_ack_post_id", "")
@@ -244,6 +251,59 @@ class AgentBridge:
         finally:
             self._busy = False
             logger.info("_process_post: done, busy=False")
+
+    def _build_thread_context(self, post: dict[str, Any]) -> str:
+        """Fetch thread messages and format them as structured context.
+
+        Returns a formatted string like:
+            [Thread context]
+            @alice: Hello
+            @bot: Hi there
+            ...
+
+            [Current request]
+
+        Returns ``""`` if there are no thread messages or on failure.
+        """
+        thread_posts = get_thread_messages(
+            self.driver,
+            post["root_id"],
+            exclude_post_id=post.get("id", ""),
+            max_messages=self.config.thread_context_max_messages,
+        )
+        if not thread_posts:
+            return ""
+
+        # Cache username lookups within a single context build.
+        user_cache: dict[str, str] = {}
+        lines: list[str] = ["[Thread context]"]
+
+        for tp in thread_posts:
+            uid = tp.get("user_id", "")
+            if uid not in user_cache:
+                user_cache[uid] = self._lookup_username(uid)
+            username = user_cache[uid]
+            message = tp.get("message", "").strip()
+            lines.append(f"@{username}: {message}")
+
+        lines.append("")
+        lines.append("[Current request]")
+        return "\n".join(lines)
+
+    def _lookup_username(self, user_id: str) -> str:
+        """Look up a username by user_id, returning the user_id on failure."""
+        if not user_id:
+            return "unknown"
+        try:
+            user = self.driver.users.get_user(user_id)
+            return user.get("username", user_id)
+        except Exception:
+            logger.warning(
+                "_lookup_username: failed to look up user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return user_id
 
     def _get_mention_prefix(self, user_id: str) -> str:
         """Return ``@username `` for *user_id*, or ``""`` on failure."""

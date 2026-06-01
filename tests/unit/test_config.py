@@ -274,3 +274,22 @@ class TestMessageConfig:
         cfg = Config.from_env()
 
         assert cfg.msg_show_host is True
+
+
+class TestThreadContextConfig:
+    """Tests for THREAD_CONTEXT_MAX_MESSAGES env var."""
+
+    def test_default_is_20(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.thread_context_max_messages == 20
+
+    def test_custom_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("THREAD_CONTEXT_MAX_MESSAGES", "50")
+
+        cfg = Config.from_env()
+
+        assert cfg.thread_context_max_messages == 50

@@ -197,3 +197,69 @@ def post_or_update_reply(
         update_post_message(driver, post_id, message)
         return post_id
     return post_reply(driver, channel_id, root_id, message)
+
+
+# ---------------------------------------------------------------------------
+# Thread context
+# ---------------------------------------------------------------------------
+
+
+def get_thread_messages(
+    driver: Driver,
+    root_id: str,
+    *,
+    exclude_post_id: str = "",
+    max_messages: int = 20,
+) -> list[dict[str, Any]]:
+    """Fetch messages in a thread, sorted by creation time (ascending).
+
+    Args:
+        driver: Mattermost driver instance.
+        root_id: The root post ID of the thread.
+        exclude_post_id: A post ID to exclude (typically the triggering post).
+        max_messages: Maximum number of messages to return (most recent N).
+
+    Returns:
+        A list of post dicts, each containing at least ``user_id`` and
+        ``message``.  Returns an empty list on API failure.
+    """
+    if not root_id:
+        return []
+
+    try:
+        thread_data = driver.posts.get_thread(root_id)
+    except Exception:
+        logger.warning(
+            "get_thread_messages: failed to fetch thread for root_id=%s",
+            root_id,
+            exc_info=True,
+        )
+        return []
+
+    posts_map: dict[str, Any] = thread_data.get("posts", {})
+    order: list[str] = thread_data.get("order", [])
+
+    # Build list sorted by create_at (ascending = chronological).
+    posts: list[dict[str, Any]] = []
+    for post_id in order:
+        post = posts_map.get(post_id)
+        if post is None:
+            continue
+        if post.get("id") == exclude_post_id:
+            continue
+        posts.append(post)
+
+    # order from the API is newest-first; sort by create_at ascending.
+    posts.sort(key=lambda p: p.get("create_at", 0))
+
+    # Keep only the most recent N messages.
+    if len(posts) > max_messages:
+        posts = posts[-max_messages:]
+
+    logger.info(
+        "get_thread_messages: root_id=%s, total_in_thread=%d, returned=%d",
+        root_id,
+        len(posts_map),
+        len(posts),
+    )
+    return posts
