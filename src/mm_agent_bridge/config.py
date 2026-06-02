@@ -34,6 +34,7 @@ class Config:
 
     # Bot
     bot_mention_name: str = "ai-agent"
+    mention_by_id: bool = False
 
     # Agent backend selection: "opencode" or "copilot"
     agent_type: str = "opencode"
@@ -108,6 +109,7 @@ class Config:
             mm_port=int(_get("MM_PORT", "8065")),
             mm_scheme=_get("MM_SCHEME", "http"),
             bot_mention_name=_get("BOT_MENTION_NAME", "ai-agent"),
+            mention_by_id=_get_bool("MENTION_BY_ID"),
             agent_type=agent_type,
             opencode_base_url=_get("OPENCODE_BASE_URL", "http://localhost:36000"),
             opencode_session_id=_get("OPENCODE_SESSION_ID"),

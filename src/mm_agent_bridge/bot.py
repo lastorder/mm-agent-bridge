@@ -28,6 +28,7 @@ from .mm import (
     post_reply,
     update_post_message,
 )
+from ._patches import _FixedWebsocket
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class AgentBridge:
         """Login and start the event loop (blocking)."""
         logger.info("run: logging in to Mattermost at %s:%s", self.config.mm_url, self.config.mm_port)
         self.driver.login()
-        self.bot_user_id = self.driver.users.get_user("me")["id"]
+        # self.bot_user_id = self.driver.users.get_user("me")["id"]
         logger.info("run: logged in as bot_user_id=%s", self.bot_user_id)
 
         self._send_greeting()
@@ -96,7 +97,7 @@ class AgentBridge:
         logger.info("run: connecting websocket...")
         # init_websocket blocks; it will pick up the existing event loop.
         try:
-            self.driver.init_websocket(self.handle_websocket_event)
+            self.driver.init_websocket(self.handle_websocket_event, websocket_cls=_FixedWebsocket)
         finally:
             self._send_goodbye()
 
@@ -142,7 +143,7 @@ class AgentBridge:
             return
 
         # Only handle messages that mention the bot.
-        if not is_mention_for_bot(post, self.bot_user_id, self.config.bot_mention_name):
+        if not is_mention_for_bot(post, self.bot_user_id, self.config.bot_mention_name, use_mentions_list=self.config.mention_by_id):
             logger.info(
                 "handle_websocket_event: no mention for bot in post_id=%s, skipping",
                 post.get("id"),

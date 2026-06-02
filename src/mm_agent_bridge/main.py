@@ -8,6 +8,8 @@ import sys
 
 from dotenv import load_dotenv
 
+import mm_agent_bridge._patches  # noqa: F401 — applies monkey-patches at import time
+
 from .config import Config
 from .bot import AgentBridge
 

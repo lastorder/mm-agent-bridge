@@ -81,14 +81,20 @@ def parse_posted_event(raw: str) -> dict[str, Any] | None:
 
 
 def is_mention_for_bot(
-    post: dict[str, Any], bot_user_id: str, mention_name: str
+    post: dict[str, Any], bot_user_id: str, mention_name: str, *, use_mentions_list: bool = True
 ) -> bool:
-    """Return ``True`` if *post* is an @mention directed at the bot."""
+    """Return ``True`` if *post* is an @mention directed at the bot.
+
+    When *use_mentions_list* is ``False``, only text-based matching
+    (``@mention_name`` in the message) is used.  This is useful when
+    the bot token is shared across teams and the server-parsed mentions
+    list would trigger the bot for other bots sharing the same user ID.
+    """
     mentions_list = post.get("_mentions", [])
     message = post.get("message", "")
 
     # Primary check: the server-parsed mentions list.
-    if bot_user_id in mentions_list:
+    if use_mentions_list and bot_user_id in mentions_list:
         logger.info(
             "is_mention_for_bot: MATCH via mentions list (bot_user_id=%s in %s)",
             bot_user_id,
