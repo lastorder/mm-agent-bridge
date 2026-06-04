@@ -77,7 +77,7 @@ class AgentBridge:
             }
         )
         self.agent = _build_agent_client(self.config)
-        self.queue = asyncio.Queue()
+        self.queue = asyncio.Queue(maxsize=self.config.queue_max_size)
 
     # -- public entry point -------------------------------------------------
 
@@ -147,6 +147,22 @@ class AgentBridge:
             logger.info(
                 "handle_websocket_event: no mention for bot in post_id=%s, skipping",
                 post.get("id"),
+            )
+            return
+
+        # Reject if queue is full (防恶意刷屏).
+        if self.queue.full():
+            logger.warning(
+                "handle_websocket_event: queue full (%d), rejecting post_id=%s",
+                self.queue.qsize(),
+                post.get("id"),
+            )
+            mention_prefix = self._get_mention_prefix(post.get("user_id", ""))
+            post_reply(
+                self.driver,
+                channel_id=post["channel_id"],
+                root_id=post.get("root_id") or post["id"],
+                message=self._with_host_suffix(f"{mention_prefix}{self.config.msg_queue_full}"),
             )
             return
 

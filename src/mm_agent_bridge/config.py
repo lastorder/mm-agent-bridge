@@ -55,11 +55,15 @@ class Config:
     greeting_message: str = "Agent is now online and ready."
     goodbye_message: str = "Agent is shutting down. Goodbye."
 
+    # Queue
+    queue_max_size: int = 10
+
     # Thread context
     thread_context_max_messages: int = 20
 
     # Bot messages (user-facing, shown in thread replies)
     msg_queued: str = "Your request has been queued. Please wait..."
+    msg_queue_full: str = "Agent is busy, please try again later."
     msg_processing: str = "Processing your request..."
     msg_error: str = "Sorry, an error occurred while processing your request."
     msg_empty: str = "Empty message after removing mention."
@@ -122,7 +126,9 @@ class Config:
             greeting_message=_get("GREETING_MESSAGE", "Agent is now online and ready."),
             goodbye_message=_get("GOODBYE_MESSAGE", "Agent is shutting down. Goodbye."),
             thread_context_max_messages=int(_get("THREAD_CONTEXT_MAX_MESSAGES", "20")),
+            queue_max_size=int(_get("QUEUE_MAX_SIZE", "10")),
             msg_queued=_get("MSG_QUEUED", "Your request has been queued. Please wait..."),
+            msg_queue_full=_get("MSG_QUEUE_FULL", "Agent is busy, please try again later."),
             msg_processing=_get("MSG_PROCESSING", "Processing your request..."),
             msg_error=_get("MSG_ERROR", "Sorry, an error occurred while processing your request."),
             msg_empty=_get("MSG_EMPTY", "Empty message after removing mention."),

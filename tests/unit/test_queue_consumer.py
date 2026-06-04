@@ -478,3 +478,139 @@ class TestHostSuffix:
         msg = patch_args.kwargs["options"]["message"]
         assert "error" in msg.lower()
         assert msg.endswith("\n(host: srv-1)")
+
+
+class TestQueueFull:
+    """Tests that queue-full rejection works correctly."""
+
+    @pytest.fixture
+    def small_queue_bot(
+        self, mock_driver: MagicMock, mock_opencode: AsyncMock
+    ) -> AgentBridge:
+        """Bot with queue_max_size=2 for easy testing."""
+        from mm_agent_bridge.config import Config
+
+        cfg = Config(
+            mm_url="localhost",
+            mm_token="test-token",
+            agent_type="opencode",
+            opencode_model_id="test-model",
+            opencode_provider_id="test-provider",
+            queue_max_size=2,
+        )
+        b = AgentBridge.__new__(AgentBridge)
+        b.config = cfg
+        b.driver = mock_driver
+        b.agent = mock_opencode
+        b.bot_user_id = BOT_USER_ID
+        b._busy = False
+        b._goodbye_sent = False
+
+        import asyncio
+
+        b.queue = asyncio.Queue(maxsize=cfg.queue_max_size)
+        return b
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_queue_full(
+        self, small_queue_bot, mock_driver
+    ) -> None:
+        """When queue is full, new requests are rejected (not enqueued)."""
+        bot = small_queue_bot
+        # Fill queue to capacity.
+        await bot.queue.put({"id": "fill-1"})
+        await bot.queue.put({"id": "fill-2"})
+        assert bot.queue.full()
+
+        raw = make_posted_event(
+            message="@ai-agent new request",
+            mentions=[BOT_USER_ID],
+            user_id="user-3",
+        )
+        await bot.handle_websocket_event(raw)
+
+        # Should NOT have been enqueued.
+        assert bot.queue.qsize() == 2
+
+        # Should have posted a rejection reply.
+        mock_driver.posts.create_post.assert_called_once()
+        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert "busy" in opts["message"].lower() or "later" in opts["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_rejection_includes_mention(
+        self, small_queue_bot, mock_driver
+    ) -> None:
+        """Rejection message includes @mention prefix."""
+        bot = small_queue_bot
+        await bot.queue.put({"id": "fill-1"})
+        await bot.queue.put({"id": "fill-2"})
+
+        raw = make_posted_event(
+            message="@ai-agent test",
+            mentions=[BOT_USER_ID],
+            user_id="user-7",
+        )
+        await bot.handle_websocket_event(raw)
+
+        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert opts["message"].startswith("@user-user-7 ")
+
+    @pytest.mark.asyncio
+    async def test_enqueues_when_not_full(
+        self, small_queue_bot, mock_driver
+    ) -> None:
+        """When queue is not full, request is enqueued normally."""
+        bot = small_queue_bot
+        # Put only 1 item (capacity is 2).
+        await bot.queue.put({"id": "fill-1"})
+        assert not bot.queue.full()
+
+        raw = make_posted_event(
+            message="@ai-agent hello",
+            mentions=[BOT_USER_ID],
+            user_id="user-4",
+        )
+        await bot.handle_websocket_event(raw)
+
+        # Should have been enqueued (now 2 items).
+        assert bot.queue.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_custom_queue_full_message(
+        self, mock_driver, mock_opencode
+    ) -> None:
+        """Custom MSG_QUEUE_FULL text is used in rejection reply."""
+        from mm_agent_bridge.config import Config
+
+        cfg = Config(
+            mm_url="localhost",
+            mm_token="test-token",
+            agent_type="opencode",
+            opencode_model_id="test-model",
+            opencode_provider_id="test-provider",
+            queue_max_size=1,
+            msg_queue_full="Custom busy message!",
+        )
+        b = AgentBridge.__new__(AgentBridge)
+        b.config = cfg
+        b.driver = mock_driver
+        b.agent = mock_opencode
+        b.bot_user_id = BOT_USER_ID
+        b._busy = False
+        b._goodbye_sent = False
+
+        import asyncio
+
+        b.queue = asyncio.Queue(maxsize=1)
+        await b.queue.put({"id": "fill-1"})
+
+        raw = make_posted_event(
+            message="@ai-agent test",
+            mentions=[BOT_USER_ID],
+            user_id="user-5",
+        )
+        await b.handle_websocket_event(raw)
+
+        opts = mock_driver.posts.create_post.call_args.kwargs["options"]
+        assert "Custom busy message!" in opts["message"]

@@ -132,7 +132,7 @@ def bot(config: Config, mock_driver: MagicMock, mock_opencode: AsyncMock) -> Age
 
     import asyncio
 
-    b.queue = asyncio.Queue()
+    b.queue = asyncio.Queue(maxsize=config.queue_max_size)
     return b
 
 

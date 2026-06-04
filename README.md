@@ -267,12 +267,21 @@ When enabled, the bot posts a greeting message when it starts and a goodbye mess
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `MSG_QUEUED` | No | `Your request has been queued. Please wait...` | Shown when a request is queued behind other work |
+| `MSG_QUEUE_FULL` | No | `Agent is busy, please try again later.` | Shown when the queue is full and request is rejected |
 | `MSG_PROCESSING` | No | `Processing your request...` | Acknowledgment shown while the agent is working |
 | `MSG_ERROR` | No | `Sorry, an error occurred while processing your request.` | Shown when the agent call fails |
 | `MSG_EMPTY` | No | `Empty message after removing mention.` | Shown when the mention contains no text |
 | `MSG_SHOW_HOST` | No | `false` | Append `(host: <hostname>)` on a new line to all reply messages (`true`/`1`/`yes`) |
 
 All reply messages are prefixed with `@username` to notify the requesting user. When a request is queued, the queued notice, processing acknowledgment, and final response are consolidated into a single post that gets updated through each stage.
+
+### Queue protection
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `QUEUE_MAX_SIZE` | No | `10` | Maximum number of pending requests in the queue |
+
+When the queue reaches its maximum size, new incoming requests are immediately rejected with the `MSG_QUEUE_FULL` message instead of being enqueued. This prevents abuse (e.g. message flooding) from overwhelming the bot. The one request currently being processed does not count towards the queue limit.
 
 ### Thread context
 

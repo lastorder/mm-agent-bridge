@@ -293,3 +293,37 @@ class TestThreadContextConfig:
         cfg = Config.from_env()
 
         assert cfg.thread_context_max_messages == 50
+
+
+class TestQueueConfig:
+    """Tests for QUEUE_MAX_SIZE and MSG_QUEUE_FULL env vars."""
+
+    def test_default_queue_max_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.queue_max_size == 10
+
+    def test_custom_queue_max_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("QUEUE_MAX_SIZE", "5")
+
+        cfg = Config.from_env()
+
+        assert cfg.queue_max_size == 5
+
+    def test_default_msg_queue_full(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.msg_queue_full == "Agent is busy, please try again later."
+
+    def test_custom_msg_queue_full(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("MSG_QUEUE_FULL", "Too many requests!")
+
+        cfg = Config.from_env()
+
+        assert cfg.msg_queue_full == "Too many requests!"
