@@ -108,7 +108,7 @@ class TestChatPayload:
         }
         await bot._process_post(post)
 
-        mock_opencode.chat.assert_awaited_once_with("refactor auth module")
+        mock_opencode.chat.assert_awaited_once_with("@user-u1: refactor auth module")
 
 
 class TestChatErrorHandling:

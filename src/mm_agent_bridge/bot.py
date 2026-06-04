@@ -219,6 +219,10 @@ class AgentBridge:
             self._busy = False
             return
 
+        # Prepend sender identity so the agent knows who is asking.
+        sender_username = self._lookup_username(post.get("user_id", ""))
+        text = f"@{sender_username}: {text}"
+
         # Prepend thread context when the message is in an existing thread.
         if post.get("root_id"):
             context = self._build_thread_context(post)

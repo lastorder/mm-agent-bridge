@@ -38,8 +38,8 @@ class TestProcessPost:
 
         mock_opencode.chat.assert_awaited_once()
         call_args = mock_opencode.chat.call_args
-        # Single positional arg is the cleaned text.
-        assert call_args.args[0] == "explain auth.py"
+        # Single positional arg is the cleaned text with sender prefix.
+        assert call_args.args[0] == "@user-user-1: explain auth.py"
 
     @pytest.mark.asyncio
     async def test_replies_in_thread(self, bot, mock_driver, mock_opencode) -> None:
@@ -257,7 +257,7 @@ class TestThreadContext:
         await bot._process_post(post)
 
         mock_driver.posts.get_thread.assert_not_called()
-        assert mock_opencode.chat.call_args.args[0] == "hello"
+        assert mock_opencode.chat.call_args.args[0] == "@user-user-1: hello"
 
     @pytest.mark.asyncio
     async def test_thread_context_excludes_triggering_post(
@@ -302,7 +302,7 @@ class TestThreadContext:
 
         call_text = mock_opencode.chat.call_args.args[0]
         assert "[Thread context]" not in call_text
-        assert call_text == "hi"
+        assert call_text == "@user-user-1: hi"
 
     @pytest.mark.asyncio
     async def test_thread_fetch_failure_proceeds_without_context(
@@ -318,9 +318,9 @@ class TestThreadContext:
         )
         await bot._process_post(post)
 
-        # Agent still called with just the cleaned text.
+        # Agent still called with sender-prefixed cleaned text.
         call_text = mock_opencode.chat.call_args.args[0]
-        assert call_text == "hello"
+        assert call_text == "@user-user-1: hello"
 
     @pytest.mark.asyncio
     async def test_thread_context_includes_bot_replies(
