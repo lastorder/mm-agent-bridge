@@ -6,10 +6,13 @@ Usage:
     uv run scripts/debug_opencode.py                      # defaults to "hello"
 
 Environment variables:
-    OPENCODE_BASE_URL    (optional) Default: http://localhost:4096
-    OPENCODE_SESSION_ID  (optional) Existing session to resume; creates new if empty/invalid
-    OPENCODE_MODEL_ID    (required) e.g. claude-sonnet-4-20250514
-    OPENCODE_PROVIDER_ID (required) e.g. anthropic
+    OPENCODE_BASE_URL         (optional) Default: http://localhost:4096
+    OPENCODE_SESSION_ID       (optional) Existing session to resume; creates new if empty/invalid
+    OPENCODE_MODEL_ID         (required) e.g. claude-sonnet-4-20250514
+    OPENCODE_PROVIDER_ID      (required) e.g. anthropic
+    OPENCODE_SERVER_PASSWORD  (optional) HTTP Basic Auth password
+    OPENCODE_SERVER_USERNAME  (optional) HTTP Basic Auth username (default: opencode)
+    OPENCODE_VARIANT          (optional) Thinking effort level (e.g. low, high)
 """
 
 from __future__ import annotations
@@ -32,6 +35,9 @@ async def main() -> None:
     session_id = os.environ.get("OPENCODE_SESSION_ID", "").strip()
     model_id = os.environ.get("OPENCODE_MODEL_ID", "").strip()
     provider_id = os.environ.get("OPENCODE_PROVIDER_ID", "").strip()
+    password = os.environ.get("OPENCODE_SERVER_PASSWORD", "").strip()
+    username = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode").strip()
+    variant = os.environ.get("OPENCODE_VARIANT", "").strip()
 
     missing = [
         name
@@ -48,6 +54,7 @@ async def main() -> None:
     text = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "请输出你的工作目录，你当前可用的skills，以及mcp tools"
 
     print(f"[config] base_url={base_url} session={session_id or '(will create new)'} model={model_id}")
+    print(f"[config] auth={'enabled' if password else 'none'} variant={variant or '(default)'}")
     print(f"[input]  {text!r}")
     print()
 
@@ -56,6 +63,9 @@ async def main() -> None:
         session_id=session_id,
         model_id=model_id,
         provider_id=provider_id,
+        password=password,
+        username=username,
+        variant=variant,
     )
     try:
         response = await client.chat(text)
