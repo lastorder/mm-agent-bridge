@@ -6,7 +6,7 @@ Usage:
     uv run scripts/debug_opencode.py                      # defaults to "hello"
 
 Environment variables:
-    OPENCODE_BASE_URL    (optional) Default: http://localhost:36000
+    OPENCODE_BASE_URL    (optional) Default: http://localhost:4096
     OPENCODE_SESSION_ID  (optional) Existing session to resume; creates new if empty/invalid
     OPENCODE_MODEL_ID    (required) e.g. claude-sonnet-4-20250514
     OPENCODE_PROVIDER_ID (required) e.g. anthropic
@@ -18,16 +18,17 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from mm_agent_bridge.clients import OpenCodeClient
 
 
 async def main() -> None:
-    load_dotenv()
-
-    base_url = os.environ.get("OPENCODE_BASE_URL", "http://localhost:36000").strip()
+    base_url = os.environ.get("OPENCODE_BASE_URL", "http://localhost:4096").strip()
     session_id = os.environ.get("OPENCODE_SESSION_ID", "").strip()
     model_id = os.environ.get("OPENCODE_MODEL_ID", "").strip()
     provider_id = os.environ.get("OPENCODE_PROVIDER_ID", "").strip()

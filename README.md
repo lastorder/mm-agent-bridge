@@ -70,37 +70,35 @@ The `AGENT_TYPE` variable determines which backend to use. See below for backend
 
 ### OpenCode
 
-The bot connects to a local [OpenCode](https://opencode.ai) session. OpenCode must be running before you start the bot.
+The bot connects to an [OpenCode](https://opencode.ai) server via `OPENCODE_BASE_URL`.
 
 If the configured session ID is unavailable or not set, the bot **automatically creates a new session** and logs a WARNING with the new session ID.
 
+#### Authentication
+
+When the OpenCode server is protected with a password, set `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`, default `opencode`). The bot uses HTTP Basic Auth.
+
 #### Setup
 
-1. Install and start OpenCode:
+1. Start an OpenCode server:
 
    ```bash
-   # Start the OpenCode TUI in your project directory
-   opencode
+   # See https://opencode.ai/docs/ for installation
+   opencode serve --port 4096
    ```
 
-2. (Optional) Get an existing session ID. In the OpenCode TUI, the session ID is displayed in the status bar, or you can query the API:
-
-   ```bash
-   curl http://localhost:36000/session | jq
-   ```
-
-3. Configure `.env`:
+2. Configure the bot:
 
    ```env
    AGENT_TYPE=opencode
-
-   OPENCODE_BASE_URL=http://localhost:36000
-   OPENCODE_SESSION_ID=<session-id>          # optional; creates new if empty/invalid
+   OPENCODE_BASE_URL=http://localhost:4096
    OPENCODE_MODEL_ID=claude-sonnet-4-20250514
    OPENCODE_PROVIDER_ID=anthropic
+   # OPENCODE_SERVER_PASSWORD=secret             # if server requires auth
+   # OPENCODE_SESSION_ID=<session-id>            # optional; creates new if empty/invalid
    ```
 
-4. **Verify connectivity** before starting the bot:
+3. **Verify connectivity** before starting the bot:
 
    ```bash
    uv run scripts/debug_opencode.py "hello, are you there?"
@@ -237,10 +235,17 @@ tests/
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENCODE_BASE_URL` | No | `http://localhost:36000` | OpenCode server URL |
+| `OPENCODE_BASE_URL` | Yes* | — | OpenCode server URL (e.g. `http://localhost:4096`) |
+| `OPENCODE_SERVER_PASSWORD` | No | — | HTTP Basic Auth password for the server |
+| `OPENCODE_SERVER_USERNAME` | No | `opencode` | HTTP Basic Auth username |
 | `OPENCODE_SESSION_ID` | No | — | Session to connect to; creates new if empty/invalid |
-| `OPENCODE_MODEL_ID` | Yes | — | Model identifier (e.g. `claude-sonnet-4-20250514`) |
-| `OPENCODE_PROVIDER_ID` | Yes | — | Provider identifier (e.g. `anthropic`) |
+| `OPENCODE_MODEL_ID` | Yes* | — | Model identifier (e.g. `claude-sonnet-4-20250514`) |
+| `OPENCODE_PROVIDER_ID` | Yes* | — | Provider identifier (e.g. `anthropic`) |
+| `OPENCODE_VARIANT` | No | — | Thinking effort level (e.g. `low`, `high`) |
+
+\* Required when `AGENT_TYPE=opencode`.
+
+Newly created session IDs are automatically persisted to the `.env` file for subsequent restarts.
 
 ### Copilot backend (used when `AGENT_TYPE=copilot`)
 
@@ -257,7 +262,7 @@ Authentication is handled automatically by the Copilot CLI. Alternatively, set o
 |----------|----------|---------|-------------|
 | `GREETING_ENABLED` | No | `false` | Enable startup/shutdown messages (`true`/`1`/`yes`) |
 | `GREETING_CHANNEL_ID` | When enabled | — | Channel ID to post greeting/goodbye messages to |
-| `GREETING_MESSAGE` | No | `Agent is now online and ready.` | Startup message text |
+| `GREETING_MESSAGE` | No | `Agent is now online and ready. You can use @<bot> to request my support.` | Startup message text |
 | `GOODBYE_MESSAGE` | No | `Agent is shutting down. Goodbye.` | Shutdown message text |
 
 When enabled, the bot posts a greeting message when it starts and a goodbye message when it shuts down (including SIGTERM). Both messages include a `(host: <hostname>)` suffix.
@@ -271,7 +276,7 @@ When enabled, the bot posts a greeting message when it starts and a goodbye mess
 | `MSG_PROCESSING` | No | `Processing your request...` | Acknowledgment shown while the agent is working |
 | `MSG_ERROR` | No | `Sorry, an error occurred while processing your request.` | Shown when the agent call fails |
 | `MSG_EMPTY` | No | `Empty message after removing mention.` | Shown when the mention contains no text |
-| `MSG_SHOW_HOST` | No | `false` | Append `(host: <hostname>)` on a new line to all reply messages (`true`/`1`/`yes`) |
+| `MSG_SHOW_HOST` | No | `true` | Append `(host: <hostname>)` on a new line to all reply messages (`true`/`1`/`yes`) |
 
 All reply messages are prefixed with `@username` to notify the requesting user. When a request is queued, the queued notice, processing acknowledgment, and final response are consolidated into a single post that gets updated through each stage.
 

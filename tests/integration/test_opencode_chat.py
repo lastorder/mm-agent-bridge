@@ -223,3 +223,113 @@ class TestOpenCodeSessionFallback:
         mock_sdk.session.create.assert_awaited_once()
         assert client._session_id == "brand-new-session"
         assert client._session_validated is True
+
+
+class TestVariant:
+    """Verify variant is passed via extra_body."""
+
+    @pytest.mark.asyncio
+    async def test_variant_in_extra_body(self) -> None:
+        """When variant is set, extra_body includes it."""
+        mock_raw = AsyncMock()
+        mock_raw.json = AsyncMock(return_value={
+            "info": {"id": "msg-1", "role": "assistant"},
+            "parts": [{"type": "text", "text": "ok"}],
+        })
+        mock_sdk = MagicMock()
+        mock_sdk.session.with_raw_response.chat = AsyncMock(return_value=mock_raw)
+
+        client = OpenCodeClient(
+            base_url="http://localhost:36000",
+            session_id="s1",
+            model_id="m1",
+            provider_id="p1",
+            variant="low",
+        )
+        client._sdk = mock_sdk
+        client._session_validated = True
+
+        await client.chat("hello")
+
+        call_kwargs = mock_sdk.session.with_raw_response.chat.call_args.kwargs
+        assert call_kwargs["extra_body"] == {"variant": "low"}
+
+    @pytest.mark.asyncio
+    async def test_no_variant_no_extra_body(self) -> None:
+        """When variant is empty, extra_body is None."""
+        mock_raw = AsyncMock()
+        mock_raw.json = AsyncMock(return_value={
+            "info": {"id": "msg-1", "role": "assistant"},
+            "parts": [{"type": "text", "text": "ok"}],
+        })
+        mock_sdk = MagicMock()
+        mock_sdk.session.with_raw_response.chat = AsyncMock(return_value=mock_raw)
+
+        client = OpenCodeClient(
+            base_url="http://localhost:36000",
+            session_id="s1",
+            model_id="m1",
+            provider_id="p1",
+        )
+        client._sdk = mock_sdk
+        client._session_validated = True
+
+        await client.chat("hello")
+
+        call_kwargs = mock_sdk.session.with_raw_response.chat.call_args.kwargs
+        assert call_kwargs.get("extra_body") is None
+
+
+class TestPersistEnv:
+    """Verify .env persistence for session and provider/model."""
+
+    @pytest.mark.asyncio
+    async def test_new_session_persisted(self) -> None:
+        """When a new session is created, OPENCODE_SESSION_ID is written to .env."""
+        fake_session = MagicMock()
+        fake_session.id = "new-sess-xyz"
+
+        mock_sdk = MagicMock()
+        mock_sdk.session.create = AsyncMock(return_value=fake_session)
+
+        client = OpenCodeClient(
+            base_url="http://localhost:36000",
+            session_id="",
+            model_id="m1",
+            provider_id="p1",
+        )
+        client._sdk = mock_sdk
+
+        with patch("mm_agent_bridge.clients.opencode._persist_env") as mock_persist:
+            await client._ensure_session()
+
+            mock_persist.assert_called_once_with("OPENCODE_SESSION_ID", "new-sess-xyz")
+
+
+class TestBasicAuth:
+    """Verify Basic Auth headers are injected when password is set."""
+
+    def test_auth_headers_when_password_set(self) -> None:
+        """SDK is created with Basic Auth headers."""
+        with patch("mm_agent_bridge.clients.opencode.AsyncOpencode") as mock_cls:
+            OpenCodeClient(
+                base_url="http://localhost:4096",
+                password="secret",
+                username="admin",
+            )
+
+            mock_cls.assert_called_once()
+            call_kwargs = mock_cls.call_args.kwargs
+            assert call_kwargs["base_url"] == "http://localhost:4096"
+            assert "Authorization" in call_kwargs["default_headers"]
+            import base64
+            expected = base64.b64encode(b"admin:secret").decode()
+            assert call_kwargs["default_headers"]["Authorization"] == f"Basic {expected}"
+
+    def test_no_auth_headers_without_password(self) -> None:
+        """SDK is created without auth headers when no password."""
+        with patch("mm_agent_bridge.clients.opencode.AsyncOpencode") as mock_cls:
+            OpenCodeClient(base_url="http://localhost:4096")
+
+            call_kwargs = mock_cls.call_args.kwargs
+            assert call_kwargs.get("default_headers") is None

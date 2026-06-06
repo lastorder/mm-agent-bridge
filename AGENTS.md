@@ -45,6 +45,17 @@ docker-compose --profile local up    # start local Mattermost on :8065
 - Factory helpers (`make_posted_event`, `make_assistant_message_json`, etc.) are in `tests/conftest.py` and imported as `from tests.conftest import ...`. The `tests/` directory has `__init__.py` files to support this.
 - No tests require network, Docker, or running services. All external calls are mocked.
 
+## Pre-commit checks
+
+Before committing code changes, run the scripts in `scripts/` to verify they execute without errors:
+
+```bash
+uv run python scripts/debug_opencode.py
+uv run python scripts/debug_copilot.py
+```
+
+These scripts validate that the client modules can be imported and instantiated correctly.
+
 ## Environment variables
 
 Required — the bot exits on startup if any required var is missing:

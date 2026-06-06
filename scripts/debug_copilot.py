@@ -20,15 +20,16 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from mm_agent_bridge.clients import CopilotClient
 
 
 async def main() -> None:
-    load_dotenv()
-
     session_id = os.environ.get("COPILOT_SESSION_ID", "").strip()
     model = os.environ.get("COPILOT_MODEL", "gpt-5.4").strip()
 

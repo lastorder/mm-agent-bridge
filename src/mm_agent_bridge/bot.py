@@ -33,11 +33,6 @@ from ._patches import _FixedWebsocket
 logger = logging.getLogger(__name__)
 
 
-def _with_host_info(message: str) -> str:
-    """Append the current host name to an operational status message."""
-    return f"{message} (host: {socket.gethostname()})"
-
-
 def _build_agent_client(config: Config) -> AgentClient:
     """Instantiate the correct agent client based on *config.agent_type*."""
     if config.agent_type == "copilot":
@@ -51,6 +46,9 @@ def _build_agent_client(config: Config) -> AgentClient:
         session_id=config.opencode_session_id,
         model_id=config.opencode_model_id,
         provider_id=config.opencode_provider_id,
+        variant=config.opencode_variant,
+        password=config.opencode_password,
+        username=config.opencode_username,
     )
 
 
@@ -85,7 +83,7 @@ class AgentBridge:
         """Login and start the event loop (blocking)."""
         logger.info("run: logging in to Mattermost at %s:%s", self.config.mm_url, self.config.mm_port)
         self.driver.login()
-        # self.bot_user_id = self.driver.users.get_user("me")["id"]
+        self.bot_user_id = self.driver.users.get_user("me")["id"]
         logger.info("run: logged in as bot_user_id=%s", self.bot_user_id)
 
         self._send_greeting()
@@ -111,7 +109,7 @@ class AgentBridge:
         post_message(
             self.driver,
             self.config.greeting_channel_id,
-            _with_host_info(self.config.greeting_message),
+            self._with_host_suffix(self.config.greeting_message),
         )
 
     def _send_goodbye(self) -> None:
@@ -122,7 +120,7 @@ class AgentBridge:
         post_message(
             self.driver,
             self.config.greeting_channel_id,
-            _with_host_info(self.config.goodbye_message),
+            self._with_host_suffix(self.config.goodbye_message),
         )
         self._goodbye_sent = True
 

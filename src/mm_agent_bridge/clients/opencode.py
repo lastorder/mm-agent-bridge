@@ -18,7 +18,9 @@ raw response bypasses Pydantic entirely and gives us the actual dict.
 
 from __future__ import annotations
 
+import base64
 import logging
+from pathlib import Path
 from typing import Any
 
 from opencode_ai import AsyncOpencode
@@ -26,6 +28,34 @@ from opencode_ai import AsyncOpencode
 from .base import AgentClient
 
 logger = logging.getLogger(__name__)
+
+
+def _persist_env(key: str, value: str) -> None:
+    """Write *key*=*value* to the ``.env`` file in the current working directory.
+
+    Updates an existing line if found, otherwise appends a new one.
+    Failures are logged as warnings but never propagate — persisting the
+    session ID is best-effort and must not crash the bot.
+    """
+    env_path = Path(".env")
+    try:
+        key_prefix = f"{key}="
+        found = False
+        lines: list[str] = []
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith(key_prefix):
+                    lines.append(f"{key}={value}")
+                    found = True
+                else:
+                    lines.append(line)
+        if not found:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines) + "\n")
+    except OSError:
+        logger.warning(
+            "_persist_env: failed to write %s to %s", key, env_path, exc_info=True
+        )
 
 
 class OpenCodeClient(AgentClient):
@@ -36,13 +66,21 @@ class OpenCodeClient(AgentClient):
         *,
         base_url: str,
         session_id: str = "",
-        model_id: str,
-        provider_id: str,
+        model_id: str = "",
+        provider_id: str = "",
+        variant: str = "",
+        password: str = "",
+        username: str = "opencode",
     ) -> None:
         self._session_id = session_id
         self._model_id = model_id
         self._provider_id = provider_id
-        self._sdk = AsyncOpencode(base_url=base_url)
+        self._variant = variant
+        headers = None
+        if password:
+            creds = base64.b64encode(f"{username}:{password}".encode()).decode()
+            headers = {"Authorization": f"Basic {creds}"}
+        self._sdk = AsyncOpencode(base_url=base_url, default_headers=headers)
         self._session_validated = False
 
     async def chat(self, text: str) -> str:
@@ -88,6 +126,7 @@ class OpenCodeClient(AgentClient):
         new_session = await self._sdk.session.create()
         self._session_id = new_session.id
         self._session_validated = True
+        _persist_env("OPENCODE_SESSION_ID", self._session_id)
         logger.warning(
             "_ensure_session: created NEW session (session_id=%s). "
             "Update OPENCODE_SESSION_ID to reuse this session.",
@@ -141,13 +180,14 @@ class OpenCodeClient(AgentClient):
             text[:120],
         )
 
-        # chat() blocks until the LLM completes; disable timeout.
+        extra_body = {"variant": self._variant} if self._variant else None
         raw = await self._sdk.session.with_raw_response.chat(
             self._session_id,
             model_id=self._model_id,
             provider_id=self._provider_id,
             parts=[{"type": "text", "text": text}],
             timeout=None,
+            extra_body=extra_body,
         )
         data: dict[str, Any] = await raw.json()
 

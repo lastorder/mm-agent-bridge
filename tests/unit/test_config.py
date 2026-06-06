@@ -11,8 +11,9 @@ def _set_opencode_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set all env vars required for the default (opencode) agent."""
     monkeypatch.setenv("MM_URL", "localhost")
     monkeypatch.setenv("MM_TOKEN", "tok")
-    monkeypatch.setenv("OPENCODE_MODEL_ID", "m")
-    monkeypatch.setenv("OPENCODE_PROVIDER_ID", "p")
+    monkeypatch.setenv("OPENCODE_BASE_URL", "http://localhost:36000")
+    monkeypatch.setenv("OPENCODE_MODEL_ID", "model-1")
+    monkeypatch.setenv("OPENCODE_PROVIDER_ID", "provider-1")
 
 
 class TestConfigFromEnv:
@@ -21,6 +22,7 @@ class TestConfigFromEnv:
     def test_all_required_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MM_URL", "mattermost.local")
         monkeypatch.setenv("MM_TOKEN", "tok-abc")
+        monkeypatch.setenv("OPENCODE_BASE_URL", "http://localhost:4096")
         monkeypatch.setenv("OPENCODE_SESSION_ID", "sess-1")
         monkeypatch.setenv("OPENCODE_MODEL_ID", "model-1")
         monkeypatch.setenv("OPENCODE_PROVIDER_ID", "provider-1")
@@ -30,19 +32,30 @@ class TestConfigFromEnv:
         assert cfg.mm_url == "mattermost.local"
         assert cfg.mm_token == "tok-abc"
         assert cfg.agent_type == "opencode"
+        assert cfg.opencode_base_url == "http://localhost:4096"
         assert cfg.opencode_session_id == "sess-1"
         assert cfg.opencode_model_id == "model-1"
         assert cfg.opencode_provider_id == "provider-1"
 
+    @pytest.mark.parametrize("var", ["OPENCODE_MODEL_ID", "OPENCODE_PROVIDER_ID", "OPENCODE_BASE_URL"])
+    def test_missing_opencode_required_raises(
+        self, monkeypatch: pytest.MonkeyPatch, var: str
+    ) -> None:
+        """OPENCODE_MODEL_ID and OPENCODE_PROVIDER_ID are required for opencode backend."""
+        _set_opencode_env(monkeypatch)
+        monkeypatch.delenv(var)
+
+        with pytest.raises(ValueError, match=var):
+            Config.from_env()
+
     def test_defaults_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
-        # Do NOT set MM_PORT, MM_SCHEME, OPENCODE_BASE_URL
+        # Do NOT set MM_PORT, MM_SCHEME
 
         cfg = Config.from_env()
 
         assert cfg.mm_port == 8065
         assert cfg.mm_scheme == "http"
-        assert cfg.opencode_base_url == "http://localhost:36000"
 
     def test_custom_port_and_scheme(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -56,19 +69,6 @@ class TestConfigFromEnv:
 
     @pytest.mark.parametrize("missing_var", ["MM_URL", "MM_TOKEN"])
     def test_missing_common_required_raises(
-        self, monkeypatch: pytest.MonkeyPatch, missing_var: str
-    ) -> None:
-        _set_opencode_env(monkeypatch)
-        monkeypatch.delenv(missing_var, raising=False)
-
-        with pytest.raises(ValueError, match=missing_var):
-            Config.from_env()
-
-    @pytest.mark.parametrize(
-        "missing_var",
-        ["OPENCODE_MODEL_ID", "OPENCODE_PROVIDER_ID"],
-    )
-    def test_missing_opencode_required_raises(
         self, monkeypatch: pytest.MonkeyPatch, missing_var: str
     ) -> None:
         _set_opencode_env(monkeypatch)
@@ -222,7 +222,7 @@ class TestGreetingConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.greeting_message == "Agent is now online and ready."
+        assert cfg.greeting_message == "Agent is now online and ready. You can use @ai-agent to request my support."
         assert cfg.goodbye_message == "Agent is shutting down. Goodbye."
 
     def test_custom_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,6 +237,15 @@ class TestGreetingConfig:
         assert cfg.greeting_message == "Bot online!"
         assert cfg.goodbye_message == "Bot offline!"
 
+    def test_greeting_message_includes_mention_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Default greeting message uses the configured bot mention name."""
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("BOT_MENTION_NAME", "my-bot")
+
+        cfg = Config.from_env()
+
+        assert "@my-bot" in cfg.greeting_message
+
 
 class TestMessageConfig:
     """Tests for configurable bot messages (MSG_* env vars)."""
@@ -250,7 +259,7 @@ class TestMessageConfig:
         assert cfg.msg_processing == "Processing your request..."
         assert cfg.msg_error == "Sorry, an error occurred while processing your request."
         assert cfg.msg_empty == "Empty message after removing mention."
-        assert cfg.msg_show_host is False
+        assert cfg.msg_show_host is True
 
     def test_custom_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -327,3 +336,67 @@ class TestQueueConfig:
         cfg = Config.from_env()
 
         assert cfg.msg_queue_full == "Too many requests!"
+
+
+class TestOpenCodeVariantConfig:
+    """Tests for OPENCODE_VARIANT env var."""
+
+    def test_default_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_variant == ""
+
+    def test_custom_variant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("OPENCODE_VARIANT", "low")
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_variant == "low"
+
+
+class TestOpenCodeAuthConfig:
+    """Tests for OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME."""
+
+    def test_password_default_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.delenv("OPENCODE_SERVER_PASSWORD", raising=False)
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_password == ""
+
+    def test_username_default_opencode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.delenv("OPENCODE_SERVER_USERNAME", raising=False)
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_username == "opencode"
+
+    def test_custom_password_and_username(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("OPENCODE_SERVER_PASSWORD", "secret123")
+        monkeypatch.setenv("OPENCODE_SERVER_USERNAME", "admin")
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_password == "secret123"
+        assert cfg.opencode_username == "admin"
+
+    def test_base_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_base_url == "http://localhost:36000"
+
+    def test_custom_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_opencode_env(monkeypatch)
+        monkeypatch.setenv("OPENCODE_BASE_URL", "http://remote:4096")
+
+        cfg = Config.from_env()
+
+        assert cfg.opencode_base_url == "http://remote:4096"

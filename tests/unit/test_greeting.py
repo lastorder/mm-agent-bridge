@@ -69,7 +69,7 @@ class TestSendGreeting:
         mock_driver.posts.create_post.assert_called_once_with(
             options={
                 "channel_id": "ch-greet",
-                "message": "Hello, I am online! (host: host-1)",
+                "message": "Hello, I am online!\n(host: host-1)",
             }
         )
 
@@ -90,7 +90,7 @@ class TestSendGoodbye:
         mock_driver.posts.create_post.assert_called_once_with(
             options={
                 "channel_id": "ch-greet",
-                "message": "Goodbye, shutting down! (host: host-1)",
+                "message": "Goodbye, shutting down!\n(host: host-1)",
             }
         )
 
@@ -107,7 +107,7 @@ class TestSendGoodbye:
         mock_driver.posts.create_post.assert_called_once_with(
             options={
                 "channel_id": "ch-greet",
-                "message": "Goodbye, shutting down! (host: host-1)",
+                "message": "Goodbye, shutting down!\n(host: host-1)",
             }
         )
 

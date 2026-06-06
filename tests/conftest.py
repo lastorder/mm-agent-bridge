@@ -31,6 +31,7 @@ def config() -> Config:
         opencode_session_id="test-session-id",
         opencode_model_id="test-model",
         opencode_provider_id="test-provider",
+        msg_show_host=False,
     )
 
 
