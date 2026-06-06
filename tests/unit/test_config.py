@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mm_agent_bridge.config import Config
+from mm_agent_bridge.config import Config, CopilotConfig, OpenCodeConfig
 
 
 def _set_opencode_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,16 +32,17 @@ class TestConfigFromEnv:
         assert cfg.mm_url == "mattermost.local"
         assert cfg.mm_token == "tok-abc"
         assert cfg.agent_type == "opencode"
-        assert cfg.opencode_base_url == "http://localhost:4096"
-        assert cfg.opencode_session_id == "sess-1"
-        assert cfg.opencode_model_id == "model-1"
-        assert cfg.opencode_provider_id == "provider-1"
+        assert cfg.opencode is not None
+        assert cfg.opencode.base_url == "http://localhost:4096"
+        assert cfg.opencode.session_id == "sess-1"
+        assert cfg.opencode.model_id == "model-1"
+        assert cfg.opencode.provider_id == "provider-1"
 
     @pytest.mark.parametrize("var", ["OPENCODE_MODEL_ID", "OPENCODE_PROVIDER_ID", "OPENCODE_BASE_URL"])
     def test_missing_opencode_required_raises(
         self, monkeypatch: pytest.MonkeyPatch, var: str
     ) -> None:
-        """OPENCODE_MODEL_ID and OPENCODE_PROVIDER_ID are required for opencode backend."""
+        """OPENCODE_MODEL_ID, OPENCODE_PROVIDER_ID, OPENCODE_BASE_URL are required."""
         _set_opencode_env(monkeypatch)
         monkeypatch.delenv(var)
 
@@ -83,7 +84,8 @@ class TestConfigFromEnv:
         # No OPENCODE_SESSION_ID set — should NOT raise.
 
         cfg = Config.from_env()
-        assert cfg.opencode_session_id == ""
+        assert cfg.opencode is not None
+        assert cfg.opencode.session_id == ""
 
     def test_whitespace_only_treated_as_missing(
         self, monkeypatch: pytest.MonkeyPatch
@@ -116,8 +118,9 @@ class TestCopilotConfig:
         cfg = Config.from_env()
 
         assert cfg.agent_type == "copilot"
-        assert cfg.copilot_session_id == "sess-abc"
-        assert cfg.copilot_model == "gpt-5.4"
+        assert cfg.copilot is not None
+        assert cfg.copilot.session_id == "sess-abc"
+        assert cfg.copilot.model == "gpt-5.4"
 
     def test_copilot_session_id_optional(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """COPILOT_SESSION_ID is optional — new session created at runtime."""
@@ -127,7 +130,8 @@ class TestCopilotConfig:
         # No COPILOT_SESSION_ID — should NOT raise.
 
         cfg = Config.from_env()
-        assert cfg.copilot_session_id == ""
+        assert cfg.copilot is not None
+        assert cfg.copilot.session_id == ""
 
     def test_copilot_does_not_require_opencode_fields(
         self, monkeypatch: pytest.MonkeyPatch
@@ -139,7 +143,7 @@ class TestCopilotConfig:
         # No OPENCODE_* vars set — should NOT raise.
 
         cfg = Config.from_env()
-        assert cfg.opencode_session_id == ""
+        assert cfg.opencode is None
 
     def test_copilot_custom_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MM_URL", "localhost")
@@ -148,7 +152,8 @@ class TestCopilotConfig:
         monkeypatch.setenv("COPILOT_MODEL", "claude-sonnet-4")
 
         cfg = Config.from_env()
-        assert cfg.copilot_model == "claude-sonnet-4"
+        assert cfg.copilot is not None
+        assert cfg.copilot.model == "claude-sonnet-4"
 
 
 class TestGreetingConfig:
@@ -346,7 +351,8 @@ class TestOpenCodeVariantConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_variant == ""
+        assert cfg.opencode is not None
+        assert cfg.opencode.variant == ""
 
     def test_custom_variant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -354,7 +360,8 @@ class TestOpenCodeVariantConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_variant == "low"
+        assert cfg.opencode is not None
+        assert cfg.opencode.variant == "low"
 
 
 class TestOpenCodeAuthConfig:
@@ -366,7 +373,8 @@ class TestOpenCodeAuthConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_password == ""
+        assert cfg.opencode is not None
+        assert cfg.opencode.password == ""
 
     def test_username_default_opencode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -374,7 +382,8 @@ class TestOpenCodeAuthConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_username == "opencode"
+        assert cfg.opencode is not None
+        assert cfg.opencode.username == "opencode"
 
     def test_custom_password_and_username(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -383,15 +392,17 @@ class TestOpenCodeAuthConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_password == "secret123"
-        assert cfg.opencode_username == "admin"
+        assert cfg.opencode is not None
+        assert cfg.opencode.password == "secret123"
+        assert cfg.opencode.username == "admin"
 
     def test_base_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_base_url == "http://localhost:36000"
+        assert cfg.opencode is not None
+        assert cfg.opencode.base_url == "http://localhost:36000"
 
     def test_custom_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _set_opencode_env(monkeypatch)
@@ -399,4 +410,58 @@ class TestOpenCodeAuthConfig:
 
         cfg = Config.from_env()
 
-        assert cfg.opencode_base_url == "http://remote:4096"
+        assert cfg.opencode is not None
+        assert cfg.opencode.base_url == "http://remote:4096"
+
+
+class TestOpenCodeConfigFromEnv:
+    """Tests for OpenCodeConfig.from_env() standalone."""
+
+    def test_reads_all_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENCODE_BASE_URL", "http://host:1234")
+        monkeypatch.setenv("OPENCODE_MODEL_ID", "my-model")
+        monkeypatch.setenv("OPENCODE_PROVIDER_ID", "my-provider")
+        monkeypatch.setenv("OPENCODE_SESSION_ID", "sess-x")
+        monkeypatch.setenv("OPENCODE_VARIANT", "high")
+        monkeypatch.setenv("OPENCODE_SERVER_PASSWORD", "pw")
+        monkeypatch.setenv("OPENCODE_SERVER_USERNAME", "usr")
+
+        oc = OpenCodeConfig.from_env()
+
+        assert oc.base_url == "http://host:1234"
+        assert oc.model_id == "my-model"
+        assert oc.provider_id == "my-provider"
+        assert oc.session_id == "sess-x"
+        assert oc.variant == "high"
+        assert oc.password == "pw"
+        assert oc.username == "usr"
+
+    def test_missing_required_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENCODE_BASE_URL", "http://host:1234")
+        monkeypatch.delenv("OPENCODE_MODEL_ID", raising=False)
+        monkeypatch.delenv("OPENCODE_PROVIDER_ID", raising=False)
+
+        with pytest.raises(ValueError, match="OPENCODE_MODEL_ID"):
+            OpenCodeConfig.from_env()
+
+
+class TestCopilotConfigFromEnv:
+    """Tests for CopilotConfig.from_env() standalone."""
+
+    def test_reads_all_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("COPILOT_SESSION_ID", "cp-sess")
+        monkeypatch.setenv("COPILOT_MODEL", "claude-sonnet-4")
+
+        cc = CopilotConfig.from_env()
+
+        assert cc.session_id == "cp-sess"
+        assert cc.model == "claude-sonnet-4"
+
+    def test_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("COPILOT_SESSION_ID", raising=False)
+        monkeypatch.delenv("COPILOT_MODEL", raising=False)
+
+        cc = CopilotConfig.from_env()
+
+        assert cc.session_id == ""
+        assert cc.model == "gpt-5.4"

@@ -19,23 +19,26 @@ docker-compose --profile local up    # start local Mattermost on :8065
 
 - **No dynamic session creation**: the bot connects to one fixed OpenCode session configured via `OPENCODE_SESSION_ID`. Do not add session-creation logic.
 - **Serial queue**: `_process_post` sets `_busy=True`, calls `AgentClient.chat()`, posts response to MM, then sets `_busy=False`. Concurrent requests are queued with a user-visible "queued" notice.
-- **Agent client abstraction**: `AgentClient` (ABC in `clients/base.py`) defines the `chat(text) -> str` interface. `OpenCodeClient` and `CopilotClient` are the two implementations. All `opencode_ai` SDK usage is isolated in `clients/opencode.py`. Other modules depend on `AgentClient`, never on SDK imports directly.
-- **Backend selection**: `AGENT_TYPE` env var (`opencode` or `copilot`) determines which client is instantiated at startup via `_build_agent_client()` in `bot.py`.
+- **Agent client abstraction**: `AgentClient` (ABC in `clients/base.py`) defines the `chat(text) -> str` and `from_config(config)` interface. `OpenCodeClient` and `CopilotClient` are the two implementations. All `opencode_ai` SDK usage is isolated in `clients/opencode.py`. Other modules depend on `AgentClient`, never on SDK imports directly.
+- **Factory + registry pattern**: `clients/factory.py` provides `create_agent_client(config)`. Each client registers itself with `@register("name")`. Adding a new backend requires: (1) new client module with `@register`, (2) backend config dataclass in `config.py`, (3) one import in `clients/__init__.py`.
+- **Backend selection**: `AGENT_TYPE` env var (`opencode` or `copilot`) determines which client is instantiated at startup via the factory registry. `bot.py` has no backend-specific imports.
+- **Nested config**: `Config` has `opencode: OpenCodeConfig | None` and `copilot: CopilotConfig | None`. Each backend config has its own `from_env()` classmethod. Scripts use these directly (e.g., `OpenCodeClient(**asdict(OpenCodeConfig.from_env()))`).
 
 ## Module map
 
 | Path | Role |
 |------|------|
-| `src/mm_agent_bridge/config.py` | `Config` dataclass, loaded from env vars via `Config.from_env()` |
+| `src/mm_agent_bridge/config.py` | `Config`, `OpenCodeConfig`, `CopilotConfig` — loaded from env vars |
 | `src/mm_agent_bridge/clients/` | Agent client subpackage |
-| `src/mm_agent_bridge/clients/base.py` | `AgentClient` ABC — defines `chat(text) -> str` interface |
+| `src/mm_agent_bridge/clients/base.py` | `AgentClient` ABC — defines `chat(text) -> str` + `from_config(config)` |
+| `src/mm_agent_bridge/clients/factory.py` | Registry + `create_agent_client(config)` factory |
 | `src/mm_agent_bridge/clients/opencode.py` | `OpenCodeClient` — OpenCode session backend |
 | `src/mm_agent_bridge/clients/copilot.py` | `CopilotClient` — GitHub Copilot chat completions backend |
 | `src/mm_agent_bridge/mm.py` | Mattermost integration — `clean_mention`, `parse_posted_event`, `is_mention_for_bot`, `post_reply` |
 | `src/mm_agent_bridge/bot.py` | `AgentBridge` class — orchestrates MM and agent via asyncio.Queue |
 | `src/mm_agent_bridge/main.py` | Entry point — loads `.env`, builds config, calls `bot.run()` |
-| `scripts/debug_opencode.py` | Standalone debug script for OpenCode module |
-| `scripts/debug_copilot.py` | Standalone debug script for Copilot module |
+| `scripts/debug_opencode.py` | Standalone debug script — uses `OpenCodeConfig.from_env()` directly |
+| `scripts/debug_copilot.py` | Standalone debug script — uses `CopilotConfig.from_env()` directly |
 | `tests/conftest.py` | All shared fixtures and factory helpers |
 
 ## Testing conventions
@@ -70,9 +73,13 @@ Required — the bot exits on startup if any required var is missing:
 
 | Variable | Example |
 |----------|---------|
+| `OPENCODE_BASE_URL` | (required) e.g. `http://localhost:4096` |
+| `OPENCODE_MODEL_ID` | (required) e.g. `claude-sonnet-4-20250514` |
+| `OPENCODE_PROVIDER_ID` | (required) e.g. `anthropic` |
 | `OPENCODE_SESSION_ID` | (optional) Existing session ID; creates new if empty/invalid |
-| `OPENCODE_MODEL_ID` | e.g. `claude-sonnet-4-20250514` |
-| `OPENCODE_PROVIDER_ID` | e.g. `anthropic` |
+| `OPENCODE_SERVER_PASSWORD` | (optional) HTTP Basic Auth password |
+| `OPENCODE_SERVER_USERNAME` | (optional) HTTP Basic Auth username (default: opencode) |
+| `OPENCODE_VARIANT` | (optional) Thinking effort e.g. `low`, `high` |
 
 **Copilot backend** (used when `AGENT_TYPE=copilot`):
 
@@ -83,7 +90,7 @@ No explicit token is needed. Auth is handled by the local Copilot CLI (`copilot`
 | `COPILOT_SESSION_ID` | (optional) Existing session ID to resume; creates new if empty/invalid |
 | `COPILOT_MODEL` | (optional) e.g. `gpt-5.4` (default) |
 
-Optional with defaults: `MM_PORT` (8065), `MM_SCHEME` (http), `BOT_MENTION_NAME` (ai-agent), `OPENCODE_BASE_URL` (http://localhost:36000), `COPILOT_MODEL` (gpt-5.4).
+Optional with defaults: `MM_PORT` (8065), `MM_SCHEME` (http), `BOT_MENTION_NAME` (ai-agent), `COPILOT_MODEL` (gpt-5.4).
 
 ## Known gotchas
 

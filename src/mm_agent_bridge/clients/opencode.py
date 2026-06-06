@@ -26,6 +26,7 @@ from typing import Any
 from opencode_ai import AsyncOpencode
 
 from .base import AgentClient
+from .factory import register
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def _persist_env(key: str, value: str) -> None:
         )
 
 
+@register("opencode")
 class OpenCodeClient(AgentClient):
     """AgentClient implementation backed by an OpenCode session."""
 
@@ -82,6 +84,15 @@ class OpenCodeClient(AgentClient):
             headers = {"Authorization": f"Basic {creds}"}
         self._sdk = AsyncOpencode(base_url=base_url, default_headers=headers)
         self._session_validated = False
+
+    @classmethod
+    def from_config(cls, config) -> "OpenCodeClient":
+        """Create from a :class:`~mm_agent_bridge.config.Config` instance."""
+        from dataclasses import asdict
+
+        oc = config.opencode
+        assert oc is not None, "Config.opencode is required for opencode backend"
+        return cls(**asdict(oc))
 
     async def chat(self, text: str) -> str:
         """Send *text* to the OpenCode session and return the reply."""

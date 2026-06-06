@@ -23,12 +23,14 @@ from copilot import CopilotClient as SdkClient
 from copilot.session import AssistantMessageData, CopilotSession, PermissionHandler
 
 from .base import AgentClient
+from .factory import register
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "gpt-5.4"
 
 
+@register("copilot")
 class CopilotClient(AgentClient):
     """AgentClient implementation backed by GitHub Copilot SDK.
 
@@ -54,6 +56,15 @@ class CopilotClient(AgentClient):
         self._timeout = timeout
         self._sdk_client: SdkClient | None = None
         self._session: CopilotSession | None = None
+
+    @classmethod
+    def from_config(cls, config) -> "CopilotClient":
+        """Create from a :class:`~mm_agent_bridge.config.Config` instance."""
+        from dataclasses import asdict
+
+        cc = config.copilot
+        assert cc is not None, "Config.copilot is required for copilot backend"
+        return cls(**asdict(cc))
 
     async def chat(self, text: str) -> str:
         """Send *text* to GitHub Copilot and return the reply.

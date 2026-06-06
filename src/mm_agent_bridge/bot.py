@@ -16,7 +16,7 @@ from typing import Any
 
 from mattermostdriver import Driver
 
-from .clients import AgentClient, CopilotClient, OpenCodeClient
+from .clients import AgentClient, create_agent_client
 from .config import Config
 from .mm import (
     clean_mention,
@@ -31,25 +31,6 @@ from .mm import (
 from ._patches import _FixedWebsocket
 
 logger = logging.getLogger(__name__)
-
-
-def _build_agent_client(config: Config) -> AgentClient:
-    """Instantiate the correct agent client based on *config.agent_type*."""
-    if config.agent_type == "copilot":
-        return CopilotClient(
-            session_id=config.copilot_session_id,
-            model=config.copilot_model,
-        )
-    # Default: opencode
-    return OpenCodeClient(
-        base_url=config.opencode_base_url,
-        session_id=config.opencode_session_id,
-        model_id=config.opencode_model_id,
-        provider_id=config.opencode_provider_id,
-        variant=config.opencode_variant,
-        password=config.opencode_password,
-        username=config.opencode_username,
-    )
 
 
 @dataclass
@@ -74,7 +55,7 @@ class AgentBridge:
                 "verify": self.config.mm_scheme == "https",
             }
         )
-        self.agent = _build_agent_client(self.config)
+        self.agent = create_agent_client(self.config)
         self.queue = asyncio.Queue(maxsize=self.config.queue_max_size)
 
     # -- public entry point -------------------------------------------------

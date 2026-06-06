@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 _TRUTHY = ("true", "1", "yes")
 
+# Backends that Config.from_env() knows how to load.
+# Update this when adding a new backend.
+_SUPPORTED_BACKENDS = ("opencode", "copilot")
+
 
 def _get(name: str, default: str = "") -> str:
     """Read an optional env var, stripped of whitespace."""
@@ -14,8 +18,76 @@ def _get(name: str, default: str = "") -> str:
 
 
 def _get_bool(name: str, default: str = "false") -> bool:
-    """Read an optional boolean env var (true/1/yes → True)."""
+    """Read an optional boolean env var (true/1/yes -> True)."""
     return _get(name, default).lower() in _TRUTHY
+
+
+def _require(name: str) -> str:
+    """Read a required env var; raise ValueError if missing/empty."""
+    val = _get(name)
+    if not val:
+        raise ValueError(f"{name} environment variable is required")
+    return val
+
+
+# ---------------------------------------------------------------------------
+# Backend-specific config dataclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OpenCodeConfig:
+    """OpenCode backend settings.
+
+    Field names match :class:`~mm_agent_bridge.clients.opencode.OpenCodeClient`
+    constructor parameters so ``OpenCodeClient(**asdict(oc))`` works.
+    """
+
+    base_url: str
+    model_id: str
+    provider_id: str
+    session_id: str = ""
+    variant: str = ""
+    password: str = ""
+    username: str = "opencode"
+
+    @classmethod
+    def from_env(cls) -> OpenCodeConfig:
+        """Read and validate OpenCode-specific env vars."""
+        return cls(
+            base_url=_require("OPENCODE_BASE_URL"),
+            model_id=_require("OPENCODE_MODEL_ID"),
+            provider_id=_require("OPENCODE_PROVIDER_ID"),
+            session_id=_get("OPENCODE_SESSION_ID"),
+            variant=_get("OPENCODE_VARIANT"),
+            password=_get("OPENCODE_SERVER_PASSWORD"),
+            username=_get("OPENCODE_SERVER_USERNAME", "opencode"),
+        )
+
+
+@dataclass(frozen=True)
+class CopilotConfig:
+    """GitHub Copilot backend settings.
+
+    Field names match :class:`~mm_agent_bridge.clients.copilot.CopilotClient`
+    constructor parameters so ``CopilotClient(**asdict(cc))`` works.
+    """
+
+    session_id: str = ""
+    model: str = "gpt-5.4"
+
+    @classmethod
+    def from_env(cls) -> CopilotConfig:
+        """Read Copilot-specific env vars."""
+        return cls(
+            session_id=_get("COPILOT_SESSION_ID"),
+            model=_get("COPILOT_MODEL", "gpt-5.4"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Main application config
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -36,21 +108,10 @@ class Config:
     bot_mention_name: str = "ai-agent"
     mention_by_id: bool = False
 
-    # Agent backend selection: "opencode" or "copilot"
+    # Agent backend selection
     agent_type: str = "opencode"
-
-    # OpenCode (used when agent_type == "opencode")
-    opencode_base_url: str = ""
-    opencode_session_id: str = ""
-    opencode_model_id: str = ""
-    opencode_provider_id: str = ""
-    opencode_variant: str = ""
-    opencode_password: str = ""
-    opencode_username: str = "opencode"
-
-    # GitHub Copilot (used when agent_type == "copilot")
-    copilot_session_id: str = ""
-    copilot_model: str = "gpt-5.4"
+    opencode: OpenCodeConfig | None = None
+    copilot: CopilotConfig | None = None
 
     # Greeting / goodbye messages
     greeting_enabled: bool = False
@@ -79,30 +140,18 @@ class Config:
         Raises:
             ValueError: If a required variable is missing or empty.
         """
-
-        def _require(name: str) -> str:
-            val = _get(name)
-            if not val:
-                raise ValueError(f"{name} environment variable is required")
-            return val
-
         mm_url = _require("MM_URL")
         mm_token = _require("MM_TOKEN")
 
         agent_type = _get("AGENT_TYPE", "opencode").lower()
-        if agent_type not in ("opencode", "copilot"):
+        if agent_type not in _SUPPORTED_BACKENDS:
             raise ValueError(
-                f"AGENT_TYPE must be 'opencode' or 'copilot', got {agent_type!r}"
+                f"AGENT_TYPE must be one of {_SUPPORTED_BACKENDS}, got {agent_type!r}"
             )
 
-        # --- OpenCode-specific (required when agent_type == "opencode") ---
-        opencode_base_url = ""
-        opencode_model_id = ""
-        opencode_provider_id = ""
-        if agent_type == "opencode":
-            opencode_base_url = _require("OPENCODE_BASE_URL")
-            opencode_model_id = _require("OPENCODE_MODEL_ID")
-            opencode_provider_id = _require("OPENCODE_PROVIDER_ID")
+        # --- Backend-specific config ---
+        opencode = OpenCodeConfig.from_env() if agent_type == "opencode" else None
+        copilot = CopilotConfig.from_env() if agent_type == "copilot" else None
 
         # --- Greeting / goodbye ---
         greeting_enabled = _get_bool("GREETING_ENABLED")
@@ -126,15 +175,8 @@ class Config:
             bot_mention_name=bot_mention_name,
             mention_by_id=_get_bool("MENTION_BY_ID"),
             agent_type=agent_type,
-            opencode_base_url=opencode_base_url,
-            opencode_session_id=_get("OPENCODE_SESSION_ID"),
-            opencode_model_id=opencode_model_id,
-            opencode_provider_id=opencode_provider_id,
-            opencode_variant=_get("OPENCODE_VARIANT"),
-            opencode_password=_get("OPENCODE_SERVER_PASSWORD"),
-            opencode_username=_get("OPENCODE_SERVER_USERNAME", "opencode"),
-            copilot_session_id=_get("COPILOT_SESSION_ID"),
-            copilot_model=_get("COPILOT_MODEL", "gpt-5.4"),
+            opencode=opencode,
+            copilot=copilot,
             greeting_enabled=greeting_enabled,
             greeting_channel_id=greeting_channel_id,
             greeting_message=_get("GREETING_MESSAGE", default_greeting),

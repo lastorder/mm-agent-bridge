@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mm_agent_bridge.bot import AgentBridge
-from mm_agent_bridge.config import Config
+from mm_agent_bridge.config import Config, OpenCodeConfig
 
 from tests.conftest import BOT_USER_ID
 
@@ -27,10 +27,12 @@ def greeting_config() -> Config:
         mm_port=8065,
         mm_scheme="http",
         agent_type="opencode",
-        opencode_base_url="http://localhost:36000",
-        opencode_session_id="test-session-id",
-        opencode_model_id="test-model",
-        opencode_provider_id="test-provider",
+        opencode=OpenCodeConfig(
+            base_url="http://localhost:36000",
+            session_id="test-session-id",
+            model_id="test-model",
+            provider_id="test-provider",
+        ),
         greeting_enabled=True,
         greeting_channel_id="ch-greet",
         greeting_message="Hello, I am online!",

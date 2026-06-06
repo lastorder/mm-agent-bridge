@@ -3,44 +3,43 @@
 
 Usage:
     uv run scripts/debug_copilot.py "your message here"
-    uv run scripts/debug_copilot.py                      # defaults to "hello"
+    uv run scripts/debug_copilot.py                      # uses default prompt
 
 Prerequisites:
     - GitHub Copilot CLI installed and authenticated (`copilot --version`)
     - Or set COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN env var
 
-Environment variables:
-    COPILOT_SESSION_ID  (required) Existing Copilot session ID to resume
-    COPILOT_MODEL       (optional) Model name, default: gpt-5.4
+Environment variables (see .env.example):
+    COPILOT_SESSION_ID (optional), COPILOT_MODEL (optional, default: gpt-5.4)
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from mm_agent_bridge.clients import CopilotClient
+from mm_agent_bridge.clients.copilot import CopilotClient
+from mm_agent_bridge.config import CopilotConfig
 
 
 async def main() -> None:
-    session_id = os.environ.get("COPILOT_SESSION_ID", "").strip()
-    model = os.environ.get("COPILOT_MODEL", "gpt-5.4").strip()
+    cc = CopilotConfig.from_env()
 
     text = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "请输出你的工作目录，你当前可用的skills，以及mcp tools"
 
-    print(f"[config] model={model} session_id={session_id}")
+    print(f"[config] model={cc.model} session_id={cc.session_id or '(will create new)'}")
     print(f"[config] auth: using local Copilot CLI credentials")
     print(f"[input]  {text!r}")
     print()
 
-    client = CopilotClient(session_id=session_id, model=model)
+    client = CopilotClient(**asdict(cc))
     try:
         response = await client.chat(text)
         print(response)

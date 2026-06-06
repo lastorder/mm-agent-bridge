@@ -494,8 +494,6 @@ class TestQueueFull:
             mm_url="localhost",
             mm_token="test-token",
             agent_type="opencode",
-            opencode_model_id="test-model",
-            opencode_provider_id="test-provider",
             queue_max_size=2,
         )
         b = AgentBridge.__new__(AgentBridge)
@@ -587,8 +585,6 @@ class TestQueueFull:
             mm_url="localhost",
             mm_token="test-token",
             agent_type="opencode",
-            opencode_model_id="test-model",
-            opencode_provider_id="test-provider",
             queue_max_size=1,
             msg_queue_full="Custom busy message!",
         )

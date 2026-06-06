@@ -3,70 +3,45 @@
 
 Usage:
     uv run scripts/debug_opencode.py "your message here"
-    uv run scripts/debug_opencode.py                      # defaults to "hello"
+    uv run scripts/debug_opencode.py                      # uses default prompt
 
-Environment variables:
-    OPENCODE_BASE_URL         (optional) Default: http://localhost:4096
-    OPENCODE_SESSION_ID       (optional) Existing session to resume; creates new if empty/invalid
-    OPENCODE_MODEL_ID         (required) e.g. claude-sonnet-4-20250514
-    OPENCODE_PROVIDER_ID      (required) e.g. anthropic
-    OPENCODE_SERVER_PASSWORD  (optional) HTTP Basic Auth password
-    OPENCODE_SERVER_USERNAME  (optional) HTTP Basic Auth username (default: opencode)
-    OPENCODE_VARIANT          (optional) Thinking effort level (e.g. low, high)
+Environment variables (see .env.example):
+    OPENCODE_BASE_URL, OPENCODE_MODEL_ID, OPENCODE_PROVIDER_ID (required)
+    OPENCODE_SESSION_ID, OPENCODE_VARIANT, OPENCODE_SERVER_PASSWORD,
+    OPENCODE_SERVER_USERNAME (optional)
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from mm_agent_bridge.clients import OpenCodeClient
+from mm_agent_bridge.clients.opencode import OpenCodeClient
+from mm_agent_bridge.config import OpenCodeConfig
 
 
 async def main() -> None:
-    base_url = os.environ.get("OPENCODE_BASE_URL", "http://localhost:4096").strip()
-    session_id = os.environ.get("OPENCODE_SESSION_ID", "").strip()
-    model_id = os.environ.get("OPENCODE_MODEL_ID", "").strip()
-    provider_id = os.environ.get("OPENCODE_PROVIDER_ID", "").strip()
-    password = os.environ.get("OPENCODE_SERVER_PASSWORD", "").strip()
-    username = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode").strip()
-    variant = os.environ.get("OPENCODE_VARIANT", "").strip()
-
-    missing = [
-        name
-        for name, val in [
-            ("OPENCODE_MODEL_ID", model_id),
-            ("OPENCODE_PROVIDER_ID", provider_id),
-        ]
-        if not val
-    ]
-    if missing:
-        print(f"ERROR: missing env vars: {', '.join(missing)}")
+    try:
+        oc = OpenCodeConfig.from_env()
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
         sys.exit(1)
 
     text = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "请输出你的工作目录，你当前可用的skills，以及mcp tools"
 
-    print(f"[config] base_url={base_url} session={session_id or '(will create new)'} model={model_id}")
-    print(f"[config] auth={'enabled' if password else 'none'} variant={variant or '(default)'}")
+    print(f"[config] base_url={oc.base_url} session={oc.session_id or '(will create new)'} model={oc.model_id}")
+    print(f"[config] auth={'enabled' if oc.password else 'none'} variant={oc.variant or '(default)'}")
     print(f"[input]  {text!r}")
     print()
 
-    client = OpenCodeClient(
-        base_url=base_url,
-        session_id=session_id,
-        model_id=model_id,
-        provider_id=provider_id,
-        password=password,
-        username=username,
-        variant=variant,
-    )
+    client = OpenCodeClient(**asdict(oc))
     try:
         response = await client.chat(text)
     except RuntimeError as exc:
